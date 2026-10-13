@@ -27,11 +27,22 @@ Inicia sesión con la misma cuenta de Tailscale y agrega a `~/.ssh/config` (fuer
 
 ```
 Host pixilate
-    HostName pixilate
+    HostName <nombre de Pixilate en Tailscale>
     User <usuario que imprimió el script>
 ```
 
 Prueba: `ssh pixilate nvidia-smi`.
+
+## Trabajos largos
+
+Cerrar SSH mata lo que se lanzó en la sesión. `job.ps1` (corre en Pixilate) lo lanza como tarea programada que sigue aunque Aerilate se apague:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\remote\job.ps1 start <nombre> <carpeta> "<comando>"
+# list · log <nombre> -Tail 50 · stop <nombre>
+```
+
+Logs en `~\bakery-jobs\<nombre>.log`.
 
 ## 3. Wake-on-LAN (opcional, cuando el clúster esté armado)
 

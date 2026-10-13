@@ -22,11 +22,11 @@ Una GPU para el clúster se evaluó pero no se compró: no dar por hecho que exi
 ## Estructura
 
 - `fan/`: daemon de ventiladores y monitor de temperatura de la Pi (ver `fan/README.md`).
-- `remote/`: acceso SSH a Pixilate por Tailscale y Wake-on-LAN desde una Pi (ver `remote/README.md`).
+- `remote/`: acceso SSH a Pixilate por Tailscale, `job.ps1` para trabajos que sobreviven al cerrar SSH, y Wake-on-LAN desde una Pi (ver `remote/README.md`).
 
 ## Reglas
 
-- Skills que aplican: `ponytail` antes de cada pieza de código, `hardware` antes de proponer equipo, `port-registry` antes de exponer un puerto, `stack-selection` y `planeacion` al arrancar un servicio nuevo, `commit-checkpoints`, `session-hygiene`, `redaccion-espanol-mx`. Para documentación visual, tema `forge` de `37.iroFactory` (hardware y firmware) vía `frontend-design`.
+- Skills que aplican: `bakery` para usar Pixilate a distancia, `ponytail` antes de cada pieza de código, `hardware` antes de proponer equipo, `port-registry` antes de exponer un puerto, `stack-selection` y `planeacion` al arrancar un servicio nuevo, `commit-checkpoints`, `session-hygiene`, `redaccion-espanol-mx`. Para documentación visual, tema `forge` de `37.iroFactory` (hardware y firmware) vía `frontend-design`.
 - Seguridad antes que comodidad: nada expuesto a internet sin llave y sin necesidad. Nunca contraseñas en el repo.
 - Sin guion largo en ningún texto.
 

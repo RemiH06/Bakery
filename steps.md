@@ -2,12 +2,10 @@
 
 ## Siguiente sesión
 
-Hecho (2026-10-13): limpieza del repo (`fan/` con Makefile corregido y `fan-control.service`, `CLAUDE.md` desde `BAKERY_CONTEXTO.md`); scripts de acceso remoto en `remote/` (sin correr todavía).
+Hecho (2026-10-13): limpieza del repo (`fan/` con Makefile corregido y `fan-control.service`, `CLAUDE.md` desde `BAKERY_CONTEXTO.md`); acceso SSH a Pixilate funcionando (`ssh pixilate`, nombre en Tailscale `pixilate2`; RTX 3060 12 GB, driver 591.86); `remote/job.ps1` para trabajos largos (tarea programada S4U, probado: sobrevive al cerrar SSH, ve la GPU, `stop` mata a los hijos); skill `bakery` creada.
 
-1. Clonar el repo en Pixilate y correr `remote/pixilate-setup.ps1`; Tailscale en Aerilate. WoL queda para después (BIOS + Pi). Probar `ssh pixilate nvidia-smi` desde fuera de casa (datos del celular o ITESO).
-2. Trabajos que sobrevivan a la desconexión: OpenSSH en Windows mata los procesos de la sesión al cerrarla. Decidir entre WSL2 + tmux (CUDA funciona en WSL2) o tareas programadas de Windows.
-3. Armar el clúster: Raspberry Pi OS en `frambuesa-yi`, llave de Aerilate desde el Imager, `remote/pi-setup.sh`, agregar `Host frambuesa-yi` a `~/.ssh/config`.
-4. Skill `bakery` en `48.SkillShot` (cómo llegar a Pixilate, despertarla, correr modelos remotos) una vez que lo anterior funcione. Registrar sshd :22 de Pixilate en `PORTS.md` si se decide que el registro cubre servicios de sistema.
+1. Armar el clúster: Raspberry Pi OS en `frambuesa-yi`, llave de Aerilate desde el Imager, `remote/pi-setup.sh`, agregar `Host frambuesa-yi` a `~/.ssh/config`.
+2. Ampliar la skill `bakery` (ya existe en `48.SkillShot`) cuando haya WoL y clúster. Registrar sshd :22 de Pixilate en `PORTS.md` si se decide que el registro cubre servicios de sistema.
 
 ## Otros
 
