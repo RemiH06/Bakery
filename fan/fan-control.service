@@ -1,0 +1,10 @@
+[Unit]
+Description=Bakery fan control daemon
+After=multi-user.target
+
+[Service]
+ExecStart=/home/pi/fan_control/fan_daemon
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

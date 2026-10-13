@@ -22,9 +22,9 @@ install: build
 	@echo "Instalando sistema de control de ventiladores..."
 	sudo mkdir -p $(INSTALL_DIR)
 	sudo cp $(TARGET) $(INSTALL_DIR)/
-	sudo cp temperature_monitor.py $(INSTALL_DIR)/
+	sudo cp simple_monitor.py $(INSTALL_DIR)/
 	sudo chmod +x $(INSTALL_DIR)/$(TARGET)
-	sudo chmod +x $(INSTALL_DIR)/temperature_monitor.py
+	sudo chmod +x $(INSTALL_DIR)/simple_monitor.py
 	sudo cp fan-control.service $(SERVICE_DIR)/
 	sudo systemctl daemon-reload
 	@echo "Instalación completada."
@@ -75,7 +75,7 @@ setup: setup-dependencies build install
 	@echo "1. Conecta los ventiladores a los pines especificados"
 	@echo "2. Ejecuta 'make setup-display' para configurar la pantalla"
 	@echo "3. Inicia el servicio: sudo systemctl enable fan-control && sudo systemctl start fan-control"
-	@echo "4. Ejecuta la GUI: python3 $(INSTALL_DIR)/fan_control_gui.py"
+	@echo "4. Monitor opcional: python3 $(INSTALL_DIR)/simple_monitor.py"
 
 setup-dependencies:
 	@echo "Instalando dependencias del sistema..."
