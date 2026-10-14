@@ -6,6 +6,15 @@ Hecho (2026-10-13): limpieza del repo (`fan/` con Makefile corregido y `fan-cont
 
 Antes de usar `job.ps1` desde la skill: commit y push de este repo, `git pull` en el clon de Pixilate.
 
+**Prioridad nueva (2026-10-13): preparar Pixilate para hostear proyectos de la BAKERY WAITLIST antes del clúster.** Skills `hosteo` y `ciberseguridad` creadas en `48.SkillShot` para esto. Orden, aplicando con el usuario y explicando cada paso:
+
+1. Auditoría de Pixilate con `ciberseguridad` (sección "Auditar una máquina"): cuentas maestras con MFA, qué escucha, firewall, cuentas locales, Defender, software, cifrado. Aerilate también, al menos cuentas y firewall.
+2. ACL de Tailscale con `tag:server` para Pixilate (`ciberseguridad/references/red.md`).
+3. Preparación de `hosteo/references/pixilate.md`: WSL2 + Ubuntu, systemd, Docker Engine, `.wslconfig`, energía. Agregar a `job.ps1` un disparador al arranque y verificar que WSL arranca desde S4U sin sesión; probar un reinicio real.
+4. Primer proyecto: decidir con el usuario destino y publicación (Cloudflare Tunnel necesita dominio en Cloudflare), checklist de exposición, publicar.
+
+Después:
+
 1. Armar el clúster: Raspberry Pi OS en `frambuesa-yi`, llave de Aerilate desde el Imager, `remote/pi-setup.sh`, agregar `Host frambuesa-yi` a `~/.ssh/config`.
 2. Ampliar la skill `bakery` (ya existe en `48.SkillShot`) cuando haya WoL y clúster. Registrar sshd :22 de Pixilate en `PORTS.md` si se decide que el registro cubre servicios de sistema.
 
