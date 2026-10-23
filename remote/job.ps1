@@ -1,6 +1,6 @@
 ﻿# Trabajos largos en Pixilate que sobreviven al cerrar SSH (OpenSSH en Windows mata los procesos de la sesión).
 # Corren como tarea programada S4U: sin sesión abierta, sin contraseña guardada, con acceso a la GPU.
-#   job.ps1 start <nombre> <carpeta> "<comando>"
+#   job.ps1 start <nombre> <carpeta> "<comando>" [-AtStartup]
 #   job.ps1 list
 #   job.ps1 log <nombre> [-Tail 100]
 #   job.ps1 stop <nombre>
@@ -9,7 +9,9 @@ param(
     [string]$Name,
     [string]$Dir,
     [string]$Command,
-    [int]$Tail = 40
+    [int]$Tail = 40,
+    # Además de lanzarlo ahora, lo vuelve a lanzar en cada arranque de Windows, sin sesión abierta
+    [switch]$AtStartup
 )
 $ErrorActionPreference = 'Stop'
 $root = "$HOME\bakery-jobs"
@@ -35,7 +37,8 @@ Set-Location '$Dir'
         $principal = New-ScheduledTaskPrincipal -UserId "$env:COMPUTERNAME\$env:USERNAME" -LogonType S4U
         # Sin límite de tiempo (el default corta a las 72 h) y prioridad normal (el default es baja)
         $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -Priority 4
-        Register-ScheduledTask -TaskName $task -Action $action -Principal $principal -Settings $settings -Force | Out-Null
+        $trigger = if ($AtStartup) { @{ Trigger = New-ScheduledTaskTrigger -AtStartup } } else { @{} }
+        Register-ScheduledTask -TaskName $task -Action $action -Principal $principal -Settings $settings @trigger -Force | Out-Null
         Start-ScheduledTask $task
         "Lanzado $task. Log: $log"
     }
