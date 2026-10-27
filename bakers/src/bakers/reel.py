@@ -21,6 +21,7 @@ CARPETA = Path.home() / ".bakers" / "reels"  # fuera de cualquier repo: es mater
 MAX_SEGUNDOS = 600  # reels y shorts; un video largo va por la skill `inspiracion` a mano
 MAX_FRAMES = 8      # ~660 tokens cada uno a 540 px de ancho: caben con holgura en los 32k
 CADA = 3.0          # segundos entre fotogramas en videos cortos
+LOGPROB_MIN = -1.0  # segmentos de whisper por debajo son alucinación (letra inventada sobre música)
 
 
 def _correr(*args: str, cwd: Path | None = None) -> str:
@@ -91,9 +92,16 @@ def _transcribir(c: httpx.Client, cfg: dict, video: Path, trabajo: Path) -> list
         raise BakerError(f"Sin conexión con llama-swap en {c.base_url}: {e!r}") from e
     if r.is_error:
         raise BakerError(f"whisper respondió {r.status_code}: {r.text[:500]}")
-    segmentos = [{"t": _mmss(s["start"]), "texto": s["text"].strip()} for s in r.json().get("segments", [])]
+    segmentos = [{"t": _mmss(s["start"]), "texto": s["text"].strip(), "logprob": round(s.get("avg_logprob", 0), 2)}
+                 for s in r.json().get("segments", [])]
     (trabajo / "transcripcion.json").write_text(json.dumps(segmentos, ensure_ascii=False, indent=1), "utf-8")
-    return [s for s in segmentos if s["texto"]]
+    # Sin VAD, whisper.cpp inventa letra sobre la música (logprob de -3 a -9) y eso mandó a la visión a un bucle
+    # (2026-10-27); -1 es el umbral de Whisper. También repite "*crickets*" en silencios: una vez basta.
+    limpios = []
+    for s in segmentos:
+        if s["texto"] and s["logprob"] >= LOGPROB_MIN and (not limpios or limpios[-1]["texto"] != s["texto"]):
+            limpios.append({"t": s["t"], "texto": s["texto"]})
+    return limpios
 
 
 def _mensaje(meta: dict, duracion: float, segmentos: list[dict], tomas: list[tuple[float, Path]]) -> list[dict]:
@@ -128,14 +136,24 @@ def _nota(r: Reel, meta: dict, fuente: str, duracion: float) -> str:
 def _uno(c: httpx.Client, cfg: dict, fuente: str) -> dict:
     uso = {"modelo": None, "entrada": 0, "salida": 0, "intentos": 0}
     inicio, error, res = time.monotonic(), None, None
+    pasos, ultimo = {}, inicio  # segundos por paso, para saber dónde se va el tiempo
+
+    def marca(paso: str) -> None:
+        nonlocal ultimo
+        pasos[paso], ultimo = round(time.monotonic() - ultimo, 2), time.monotonic()
+
     try:
         video, meta = _obtener(fuente, cfg["navegador"])
+        marca("descarga")
         trabajo = video.parent if meta else CARPETA / video.stem
         trabajo.mkdir(parents=True, exist_ok=True)
         duracion, con_audio = _sondear(video)
         segmentos = _transcribir(c, cfg, video, trabajo) if con_audio else []
+        marca("whisper")  # incluye el ffmpeg del audio y, en la primera del lote, cargar whisper
         tomas = _fotogramas(video, trabajo, duracion)
+        marca("fotogramas")
         r = core._llamar(c, cfg, _mensaje(meta, duracion, segmentos, tomas), Reel, uso)
+        marca("vision")
         nota = trabajo / "nota.md"
         nota.write_text(_nota(r, meta, fuente, duracion), "utf-8")
         res = {"fuente": fuente, "nota": str(nota), "transcripcion": str(trabajo / "transcripcion.json"),
@@ -147,7 +165,7 @@ def _uno(c: httpx.Client, cfg: dict, fuente: str) -> dict:
     finally:
         respuesta = len(json.dumps(res, ensure_ascii=False)) if res is not None else len(error or "")
         core._registrar(baker="reel", archivos=1, segundos=round(time.monotonic() - inicio, 2),
-                        ok=error is None, error=error, claude_chars=len(fuente) + respuesta, **uso)
+                        ok=error is None, error=error, claude_chars=len(fuente) + respuesta, pasos=pasos, **uso)
 
 
 def reel(fuentes: list[str]) -> list[dict]:

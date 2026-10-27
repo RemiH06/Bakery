@@ -30,6 +30,8 @@ Herramienta aparte (`reel(fuentes)` en el MCP, `baker reel` en la CLI) porque no
 
 La nota sigue el formato de la skill `inspiracion`, con dos huecos a propósito: los recursos salen como no verificados y la sección Aplicación queda pendiente, porque el modelo no conoce los proyectos. Eso lo completa Claude. Solo piezas que Remi comparte, una por enlace: nada de rastrear cuentas ni guardados.
 
+El log trae `pasos` (segundos de descarga, whisper, fotogramas y visión). En 8 reels de 14 s a 3 min (2026-10-27): 80 a 120 s por reel, de los que la visión se lleva 73 a 110 s; lo demás suma ~10 s. Los segmentos de whisper con `avg_logprob` menor a −1 se descartan (sin VAD, whisper.cpp inventa letra sobre la música y eso metió a la visión en un bucle) y los repetidos seguidos se colapsan.
+
 `whisper` y `vision` forman el grupo `reel` de llama-swap: se cargan juntos (~6 GB) y sacan a `bonsai` mientras dure el lote. No pasan por las marchas; con la marcha `ninguna` el gateway se niega antes de bajar nada.
 
 ## Marchas
@@ -42,7 +44,7 @@ Los Bakers piden el modelo virtual `principal`; el perfil activo de llama-swap d
 | `media` | `qwen`, expertos en RAM | ~3.8 GB con el escritorio (3.35 propios) | hasta ~7.9 GB |
 | `ninguna` | nada: el Baker responde error y Claude delega en otro lado | 0 | lo que sea |
 
-Baja al momento, sube solo tras un minuto cabiendo y descarga un modelo que ya no cabe solo cuando no está respondiendo. Probar sin abrir un juego: `vigilante.ps1 -Extra 3000 -Duracion 30` simula 3 GB ocupados.
+`whisper`, `vision` y `abliterado` no son marchas, pero su VRAM cuenta como nuestra, no como de un juego. Baja al momento, sube solo tras un minuto cabiendo y descarga un modelo que ya no cabe solo cuando no está respondiendo. Probar sin abrir un juego: `vigilante.ps1 -Extra 3000 -Duracion 30` simula 3 GB ocupados.
 
 ## Pixilate (una vez)
 
@@ -52,7 +54,7 @@ Necesita `~\bakers\` con los dos llama.cpp y los modelos de 1.0a. Para `reel`, a
 powershell -NoProfile -ExecutionPolicy Bypass -File bakers\pixilate\setup.ps1
 ```
 
-Descarga llama-swap v264 (verifica el checksum), genera `~\bakers\api-key.txt` legible solo por la cuenta, lanza con `remote/job.ps1 -AtStartup` los trabajos `bakers` (llama-swap) y `bakers-vigilante`, y publica al tailnet con `tailscale serve --https=8090`. Volver a correrlo es el reinicio limpio (mata también los `llama-server` hijos). La configuración ([`pixilate/llama-swap.yaml`](pixilate/llama-swap.yaml)) se lee del clon y se recarga sola al cambiar (`-watch-config`); la recarga regresa a la marcha `alta` y el vigilante la corrige en el siguiente ciclo.
+Descarga llama-swap v264 (verifica el checksum), genera `~\bakers\api-key.txt` legible solo por la cuenta, lanza con `remote/job.ps1 -AtStartup` los trabajos `bakers` (llama-swap) y `bakers-vigilante`, y publica al tailnet con `tailscale serve --https=8090`. Volver a correrlo es el reinicio limpio (mata también los `llama-server` hijos). La configuración ([`pixilate/llama-swap.yaml`](pixilate/llama-swap.yaml)) se lee del clon y se recarga sola al cambiar (`-watch-config`); la recarga regresa a la marcha `alta` y el vigilante la corrige en el siguiente ciclo. **Ojo:** recargar apaga todos los modelos y solo espera 30 s a las respuestas en curso (`shutdownTimeout` de llama-swap); una más larga se corta. Hacer `git pull` de un cambio a `llama-swap.yaml` con los Bakers quietos (`baker status` sin nada en `cargados`, o sin otra sesión usándolos).
 
 ## Aerilate
 
@@ -74,6 +76,8 @@ uv run baker reel https://www.instagram.com/reel/<id>/ video.mp4
 ```
 
 Desde Claude Code: herramientas `bake(baker, tarea, rutas, categorias)`, `reel(fuentes)` y `bakers_status()`. Cada llamada deja una línea en `~/.bakers/log.jsonl` (Baker, modelo que respondió, tokens que leyó y escribió el Baker, `claude_chars` = caracteres del pedido más la respuesta que paga Claude, intentos, segundos, error). Referencia medida: 1.7k tokens en 21 s con carga del modelo incluida; 30k tokens en 66 s.
+
+**Varias sesiones a la vez:** no hace falta cola propia. El planificador FIFO de llama-swap (desde v264) deja esperando una petición que sacaría a un modelo que está respondiendo y la atiende al terminar (probado el 2026-10-27: `qwen` llegó a media respuesta de `bonsai`, esperó 42 s y respondió). Las peticiones al modelo ya cargado pasan primero, así que una sesión con muchas llamadas seguidas puede hacer esperar a otra.
 
 **Límite:** 32k tokens por llamada. Texto normal da ~3.5 caracteres por token; algo con hashes (un lockfile) da ~1.5. Si se pasa, el Baker responde "parte la tarea".
 

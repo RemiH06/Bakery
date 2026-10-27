@@ -28,10 +28,14 @@ def test_video_local_a_nota(monkeypatch, tmp_path):
             return httpx.Response(200, json={"running": []})
         if req.url.path == "/v1/audio/transcriptions":
             assert b'name="model"\r\n\r\nwhisper' in req.content
-            return httpx.Response(200, json={"segments": [{"start": 1.2, "end": 2.0, "text": " hola"}]})
+            return httpx.Response(200, json={"segments": [
+                {"start": 0.0, "end": 1.0, "text": " I have a strong Hon", "avg_logprob": -5.6},
+                {"start": 1.2, "end": 2.0, "text": " hola", "avg_logprob": -0.2},
+                {"start": 2.0, "end": 2.5, "text": " hola", "avg_logprob": -0.1}]})
         cuerpo = json.loads(req.content)
         partes = cuerpo["messages"][1]["content"]
-        assert "[00:01] hola" in partes[0]["text"]
+        assert "[00:01] hola" in partes[0]["text"] and "Hon" not in partes[0]["text"]
+        assert partes[0]["text"].count("hola") == 1
         assert sum(p["type"] == "image_url" for p in partes) == 2  # 7 s / 3 s por fotograma
         return httpx.Response(200, json={"model": "vision", "usage": {"prompt_tokens": 900, "completion_tokens": 80},
                                          "choices": [{"message": {"content": json.dumps(NOTA)}}]})
@@ -46,7 +50,8 @@ def test_video_local_a_nota(monkeypatch, tmp_path):
     nota = (tmp_path / "reels" / "prueba" / "nota.md").read_text("utf-8")
     assert '- [00:01] "hola"' in nota and "| ffmpeg | genera el video | pantalla | no |" in nota
     assert rutas[-1] == "/v1/chat/completions"
-    assert json.loads((tmp_path / "log.jsonl").read_text("utf-8"))["entrada"] == 900
+    linea = json.loads((tmp_path / "log.jsonl").read_text("utf-8"))
+    assert linea["entrada"] == 900 and set(linea["pasos"]) == {"descarga", "whisper", "fotogramas", "vision"}
 
 
 def test_fuente_invalida_no_detiene_el_lote(monkeypatch, tmp_path):

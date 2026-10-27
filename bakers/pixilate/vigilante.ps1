@@ -15,6 +15,8 @@ $marchas = @(
     @{ perfil = 'media'; modelo = 'qwen'; vram = 3350; ram = 20000 },
     @{ perfil = 'ninguna'; modelo = $null; vram = 0; ram = 0 }
 )
+# Modelos fuera de las marchas (se piden por nombre): su VRAM también es nuestra, no de un juego
+$fuera = @{ abliterado = 3350; whisper = 1500; vision = 4700 }
 $margen = 1024     # MiB de VRAM libres para que lo demás (el juego) no se quede corto
 $margenRam = 2048  # lo mismo en RAM
 $subirTras = 60    # segundos cabiendo sin interrupción antes de subir a esa marcha
@@ -28,8 +30,9 @@ while ((Get-Date) -lt $fin) {
         $usado, $total = (nvidia-smi --query-gpu=memory.used,memory.total --format=csv,noheader,nounits) -split ',\s*' | ForEach-Object { [int]$_ }
         $corriendo = @((Invoke-RestMethod "$api/running" -Headers $auth).running)
         $cargado = $marchas | Where-Object { $_.modelo -and $_.modelo -in $corriendo.model } | Select-Object -First 1
-        # Lo que usa todo lo demás: el total menos lo que ocupa nuestro modelo cargado
-        $otros = $usado + $Extra - $(if ($cargado) { $cargado.vram } else { 0 })
+        # Lo que usa todo lo demás: el total menos lo que ocupan nuestros modelos cargados
+        $nuestraVram = ($corriendo | ForEach-Object { $m = $_.model; if ($fuera.ContainsKey($m)) { $fuera[$m] } else { ($marchas | Where-Object { $_.modelo -eq $m }).vram } } | Measure-Object -Sum).Sum
+        $otros = $usado + $Extra - [int]$nuestraVram
         # RAM: la disponible más lo que ya ocupan nuestros servidores, que se libera al cambiar de modelo
         $nuestra = (Get-Process llama-server, whisper-server -EA SilentlyContinue | Measure-Object WorkingSet64 -Sum).Sum / 1MB
         $ramLibre = (Get-CimInstance Win32_PerfFormattedData_PerfOS_Memory).AvailableMBytes + $nuestra - $ExtraRam
