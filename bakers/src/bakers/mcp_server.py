@@ -24,11 +24,13 @@ def bake(baker: str, tarea: str, rutas: list[str], categorias: list[str] | None 
 @mcp.tool(description="""Turn reels or short videos (Instagram, TikTok, Shorts; links or local files, up to 10 min)
 into inspiration notes on Pixilate: transcript, on-screen text, resources, quotes, visuals, claims to verify.
 Only pieces the user shared, one link each: never crawl accounts, feeds or saved lists.
-Returns one dict per source with the note fields and the path of a draft nota.md (or `error`).
+destino: folder where the notes go, per the project table in the inspiracion skill (e.g. docs/inspiracion of the
+current repo); heavy material (video, frames, transcript) always stays in ~/.bakers/reels.
+Returns one dict per source with the note fields and the path of the draft note (or `error`).
 Resources come back unverified, and the Aplicación section is left for you to write.""")
-def reel(fuentes: list[str]) -> list[dict]:
+def reel(fuentes: list[str], destino: str | None = None) -> list[dict]:
     try:
-        return _reel.reel(fuentes)
+        return _reel.reel(fuentes, destino)
     except core.BakerError as e:
         raise ToolError(str(e)) from e
 

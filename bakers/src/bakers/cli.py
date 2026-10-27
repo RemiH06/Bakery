@@ -16,6 +16,7 @@ def main() -> None:
     run.add_argument("-c", "--categoria", dest="categorias", action="append", help="clasificador; repetible")
     rr = sub.add_parser("reel", help="reels o videos cortos a nota de inspiración")
     rr.add_argument("fuentes", nargs="+", help="enlaces o rutas de video")
+    rr.add_argument("-d", "--destino", help="carpeta de notas del proyecto (por defecto, junto al material)")
     sub.add_parser("status", help="qué modelo atiende cada Baker y cuál está cargado")
     a = ap.parse_args()
 
@@ -25,7 +26,7 @@ def main() -> None:
         if a.cmd == "run":
             res = core.bake(a.baker, a.tarea, a.rutas, a.categorias)
         elif a.cmd == "reel":
-            res = reel.reel(a.fuentes)
+            res = reel.reel(a.fuentes, a.destino)
         else:
             res = core.estado()
     except core.BakerError as e:

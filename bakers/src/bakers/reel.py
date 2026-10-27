@@ -6,9 +6,12 @@ Una pieza por enlace, a pedido de Remi: nada de rastrear cuentas, feeds ni guard
 """
 import base64
 import json
+import re
 import shutil
 import subprocess
 import time
+import unicodedata
+from datetime import date
 from pathlib import Path
 
 import httpx
@@ -119,11 +122,22 @@ def _mensaje(meta: dict, duracion: float, segmentos: list[dict], tomas: list[tup
     return partes
 
 
-def _nota(r: Reel, meta: dict, fuente: str, duracion: float) -> str:
+def _cuenta(meta: dict) -> str:
+    return meta.get("channel") or meta.get("uploader") or "local"
+
+
+def _slug(texto: str) -> str:
+    plano = unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode().lower()
+    slug = re.sub(r"[^a-z0-9]+", "-", plano).strip("-")
+    return slug if len(slug) <= 50 else slug[:51].rsplit("-", 1)[0]  # corta entre palabras
+
+
+def _nota(r: Reel, meta: dict, fuente: str, duracion: float, trabajo: Path) -> str:
     """Borrador con el formato de `inspiracion`; verificar recursos y escribir la Aplicación queda a Claude."""
-    cuenta = meta.get("channel") or meta.get("uploader") or "?"
-    lineas = [f"# {r.tema}", "", f"- Fuente: @{cuenta}, {meta.get('webpage_url') or fuente}",
-              f"- Formato: reel, {_mmss(duracion)}", "", "## Idea central", r.idea_central, "", "## Recursos",
+    material = f"~/{trabajo.relative_to(Path.home()).as_posix()}/" if trabajo.is_relative_to(Path.home()) else trabajo
+    lineas = [f"# {r.tema}", "", f"- Fuente: @{_cuenta(meta)}, {meta.get('webpage_url') or fuente}",
+              f"- Formato: reel, {_mmss(duracion)}", f"- Visto: {date.today():%Y-%m-%d}",
+              f"- Material (video, transcripción, fotogramas): `{material}`", "", "## Idea central", r.idea_central, "", "## Recursos",
               "| Recurso | Qué es | Dónde | Verificado |", "|---|---|---|---|",
               *(f"| {x.nombre} | {x.que_es} | {x.donde} | no |" for x in r.recursos), "", "## Citas",
               *(f'- [{x.t}] "{x.texto}"' for x in r.citas), "", "## Texto en pantalla",
@@ -133,7 +147,7 @@ def _nota(r: Reel, meta: dict, fuente: str, duracion: float) -> str:
     return "\n".join(lineas) + "\n\n## Aplicación\n- (pendiente)\n"
 
 
-def _uno(c: httpx.Client, cfg: dict, fuente: str) -> dict:
+def _uno(c: httpx.Client, cfg: dict, fuente: str, destino: Path | None) -> dict:
     uso = {"modelo": None, "entrada": 0, "salida": 0, "intentos": 0}
     inicio, error, res = time.monotonic(), None, None
     pasos, ultimo = {}, inicio  # segundos por paso, para saber dónde se va el tiempo
@@ -154,8 +168,11 @@ def _uno(c: httpx.Client, cfg: dict, fuente: str) -> dict:
         marca("fotogramas")
         r = core._llamar(c, cfg, _mensaje(meta, duracion, segmentos, tomas), Reel, uso)
         marca("vision")
-        nota = trabajo / "nota.md"
-        nota.write_text(_nota(r, meta, fuente, duracion), "utf-8")
+        texto = _nota(r, meta, fuente, duracion, trabajo)
+        (trabajo / "nota.md").write_text(texto, "utf-8")
+        # La nota va al proyecto que la pidió; lo pesado (video, audio, fotogramas) se queda en CARPETA
+        nota = trabajo / "nota.md" if destino is None else             destino / f"{date.today():%Y-%m-%d}-{_slug(_cuenta(meta))}-{_slug(r.tema)}.md"
+        nota.write_text(texto, "utf-8")
         res = {"fuente": fuente, "nota": str(nota), "transcripcion": str(trabajo / "transcripcion.json"),
                **r.model_dump()}
         return res
@@ -168,14 +185,21 @@ def _uno(c: httpx.Client, cfg: dict, fuente: str) -> dict:
                         ok=error is None, error=error, claude_chars=len(fuente) + respuesta, pasos=pasos, **uso)
 
 
-def reel(fuentes: list[str]) -> list[dict]:
-    """Una nota por fuente (enlace o archivo local). Un fallo no detiene a las demás: queda en su `error`."""
+def reel(fuentes: list[str], destino: str | None = None) -> list[dict]:
+    """Una nota por fuente (enlace o archivo local). Un fallo no detiene a las demás: queda en su `error`.
+    `destino` es la carpeta de notas del proyecto; sin ella, la nota se queda junto al material."""
     if not fuentes:
         raise BakerError("Sin fuentes: pasa enlaces de reels o rutas de videos")
+    carpeta = None
+    if destino:
+        carpeta = Path(destino).expanduser()
+        if not carpeta.parent.is_dir():  # crea la carpeta de notas, no una ruta entera mal escrita
+            raise BakerError(f"No existe {carpeta.parent}: revisa el destino")
+        carpeta.mkdir(exist_ok=True)
     if core.estado()["marcha"] == "ninguna":
         raise BakerError("Pixilate no tiene VRAM libre (marcha 'ninguna', probablemente un juego): "
                          "usa la skill inspiracion a mano")
     cfg = core.BAKERS["reel"]
     # whisper y vision quedan cargados juntos (grupo `reel` de llama-swap) mientras dure el lote
     with core._cliente(timeout=600) as c:
-        return [_uno(c, cfg, f) for f in fuentes]
+        return [_uno(c, cfg, f, carpeta) for f in fuentes]

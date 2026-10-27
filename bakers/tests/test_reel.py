@@ -1,6 +1,7 @@
 import json
 import shutil
 import subprocess
+from pathlib import Path
 
 import httpx
 import pytest
@@ -45,9 +46,11 @@ def test_video_local_a_nota(monkeypatch, tmp_path):
     monkeypatch.setattr(core, "LOG", tmp_path / "log.jsonl")
     monkeypatch.setattr(reel, "CARPETA", tmp_path / "reels")
 
-    (res,) = reel.reel([str(video)])
+    (res,) = reel.reel([str(video)], str(tmp_path / "inspiracion"))
     assert res["recursos"][0]["nombre"] == "ffmpeg"
-    nota = (tmp_path / "reels" / "prueba" / "nota.md").read_text("utf-8")
+    assert Path(res["nota"]).name.endswith("-local-prueba.md") and Path(res["nota"]).parent.name == "inspiracion"
+    nota = Path(res["nota"]).read_text("utf-8")
+    assert nota == (tmp_path / "reels" / "prueba" / "nota.md").read_text("utf-8")
     assert '- [00:01] "hola"' in nota and "| ffmpeg | genera el video | pantalla | no |" in nota
     assert rutas[-1] == "/v1/chat/completions"
     linea = json.loads((tmp_path / "log.jsonl").read_text("utf-8"))
@@ -65,3 +68,8 @@ def test_fuente_invalida_no_detiene_el_lote(monkeypatch, tmp_path):
 def test_bake_rechaza_reel():
     with pytest.raises(core.BakerError, match="herramienta reel"):
         core.bake("reel", "t", ["x"])
+
+
+def test_destino_con_padre_inexistente(monkeypatch, tmp_path):
+    with pytest.raises(core.BakerError, match="revisa el destino"):
+        reel.reel(["x"], str(tmp_path / "no" / "existe"))

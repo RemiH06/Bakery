@@ -8,3 +8,6 @@ steps.md
 .venv/
 __pycache__/
 .pytest_cache/
+
+# Notas de inspiración (skill inspiracion, Baker reel): material de otras personas, no se publica
+docs/inspiracion/
