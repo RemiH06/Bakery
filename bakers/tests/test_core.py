@@ -121,3 +121,24 @@ def test_marcha_ninguna_da_error_claro(monkeypatch, tmp_path):
 
     with pytest.raises(core.BakerError, match="delega en Haiku"):
         core.bake("resumidor", "t", [str(archivo)])
+
+
+def test_tope_de_salida_corta_el_bucle_sin_reintentar(monkeypatch, tmp_path):
+    recibidos = []
+
+    def handler(req):
+        recibidos.append(json.loads(req.content))
+        cuerpo = respuesta({"resumen": "una y otra vez"})
+        cuerpo["choices"][0]["finish_reason"] = "length"
+        return httpx.Response(200, json=cuerpo)
+
+    monkeypatch.setattr(core, "_cliente", lambda timeout: httpx.Client(
+        base_url="http://pixilate", transport=httpx.MockTransport(handler)))
+    monkeypatch.setattr(core, "LOG", tmp_path / "log.jsonl")
+    archivo = tmp_path / "a.txt"
+    archivo.write_text("x", encoding="utf-8")
+
+    with pytest.raises(core.BakerError, match="bucle"):
+        core.bake("resumidor", "t", [str(archivo)])
+    assert len(recibidos) == 1
+    assert recibidos[0]["max_tokens"] == core.MAX_SALIDA

@@ -22,6 +22,8 @@ LOG = Path.home() / ".bakers" / "log.jsonl"
 MAX_CHARS = 90_000
 MAX_BYTES = 20_000_000  # no leer un archivo enorme solo para rechazarlo después
 INTENTOS = 2  # el primero más un reintento; después, error para que Claude decida
+# Una respuesta útil cabe de sobra; sin tope, Bonsai se quedó en bucle 1,129 s y 16.7k tokens (2026-10-27)
+MAX_SALIDA = 4096
 
 
 class BakerError(Exception):
@@ -65,6 +67,7 @@ def _llamar(c: httpx.Client, cfg: dict, mensaje: str | list[dict], esquema: type
     cuerpo = {
         "model": cfg["modelo"],
         "temperature": cfg["temperatura"],
+        "max_tokens": MAX_SALIDA,
         "messages": [{"role": "system", "content": cfg["sistema"]},
                      {"role": "user", "content": _tope(mensaje) if isinstance(mensaje, str) else mensaje}],
         "response_format": {
@@ -91,6 +94,10 @@ def _llamar(c: httpx.Client, cfg: dict, mensaje: str | list[dict], esquema: type
         uso["entrada"] += datos["usage"]["prompt_tokens"]
         uso["salida"] += datos["usage"]["completion_tokens"]
         uso["intentos"] += 1
+        # Reintentar no sirve: con temperatura baja el bucle se repite
+        if datos["choices"][0].get("finish_reason") == "length":
+            raise BakerError(f"El modelo llegó al tope de {MAX_SALIDA} tokens sin cerrar la respuesta (bucle): "
+                             "acota la tarea o pártela")
         # llama.cpp ignora en silencio palabras de JSON Schema que no soporta: se valida otra vez aquí
         try:
             obj = esquema.model_validate_json(datos["choices"][0]["message"]["content"])
