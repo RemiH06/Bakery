@@ -53,6 +53,16 @@ models:
       -m models/Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf -ngl 99 -ncmoe 99
     ttl: 600
 
+  # Qwen3.6 sin rechazos (abliterado por huihui-ai, Apache 2.0): fuera de las marchas, se pide por nombre.
+  # Mismo reparto que `qwen`, ~17.6 tok/s. El GGUF trae capas MTP, pero con los expertos en RAM
+  # `--spec-type draft-mtp` baja a 8.7 tok/s (acepta 31 % del borrador): apagado (medido el 2026-10-27).
+  "abliterado":
+    name: "Huihui Qwen3.6 35B-A3B abliterated Q4_K"
+    cmd: |
+      llama.cpp/llama-server.exe ${comunes}
+      -m models/Huihui-Qwen3.6-35B-A3B-abliterated-Q4_K.gguf -ngl 99 -ncmoe 99
+    ttl: 600
+
   # Baker `reel`: transcribe y ve. No pasan por las marchas (el gateway se niega en `ninguna`).
   # large-v3-turbo q8_0, ~1.5 GB de VRAM. Las rutas imitan /v1/audio/transcriptions de OpenAI.
   "whisper":
