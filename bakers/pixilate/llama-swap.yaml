@@ -52,3 +52,31 @@ models:
       llama.cpp/llama-server.exe ${comunes}
       -m models/Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf -ngl 99 -ncmoe 99
     ttl: 600
+
+  # Baker `reel`: transcribe y ve. No pasan por las marchas (el gateway se niega en `ninguna`).
+  # large-v3-turbo q8_0, ~1.5 GB de VRAM. Las rutas imitan /v1/audio/transcriptions de OpenAI.
+  "whisper":
+    name: "whisper.cpp large-v3-turbo q8_0"
+    proxy: "http://127.0.0.1:${PORT}"
+    checkEndpoint: /v1/audio/transcriptions/
+    cmd: |
+      whisper.cpp/Release/whisper-server.exe --host 127.0.0.1 --port ${PORT} -l auto
+      -m models/ggml-large-v3-turbo-q8_0.bin --request-path /v1/audio/transcriptions --inference-path ""
+    ttl: 600
+
+  # El mismo Qwen de `qwen` más su proyector de visión (0.9 GB): ~4.7 GB de VRAM.
+  "vision":
+    name: "Qwen3.6 35B-A3B UD-Q4_K_XL + mmproj F16"
+    cmd: |
+      llama.cpp/llama-server.exe ${comunes}
+      -m models/Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf -ngl 99 -ncmoe 99
+      --mmproj models/mmproj-Qwen3.6-35B-A3B-F16.gguf
+    ttl: 600
+
+# Los modelos fuera de un grupo se turnan entre sí (uno a la vez). `reel` deja a whisper y vision
+# cargados juntos durante un lote y, al ser exclusivo, descarga a bonsai o qwen mientras tanto.
+groups:
+  "reel":
+    swap: false
+    exclusive: true
+    members: ["whisper", "vision"]

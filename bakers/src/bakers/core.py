@@ -59,12 +59,14 @@ def _tope(mensaje: str) -> str:
     return mensaje
 
 
-def _llamar(c: httpx.Client, cfg: dict, mensaje: str, esquema: type[BaseModel], uso: dict,
+def _llamar(c: httpx.Client, cfg: dict, mensaje: str | list[dict], esquema: type[BaseModel], uso: dict,
             revisar: Callable[[BaseModel], None] = lambda _: None) -> BaseModel:
+    """`mensaje` es texto o, para un modelo con visión, la lista de partes (texto e imágenes) de OpenAI."""
     cuerpo = {
         "model": cfg["modelo"],
         "temperature": cfg["temperatura"],
-        "messages": [{"role": "system", "content": cfg["sistema"]}, {"role": "user", "content": _tope(mensaje)}],
+        "messages": [{"role": "system", "content": cfg["sistema"]},
+                     {"role": "user", "content": _tope(mensaje) if isinstance(mensaje, str) else mensaje}],
         "response_format": {
             "type": "json_schema",
             "json_schema": {"name": esquema.__name__, "schema": esquema.model_json_schema()},
@@ -136,6 +138,8 @@ def bake(baker: str, tarea: str, rutas: list[str], categorias: list[str] | None 
     if baker not in BAKERS:
         raise BakerError(f"No existe el Baker {baker!r}; hay: {', '.join(BAKERS)}")
     cfg = BAKERS[baker]
+    if cfg["esquema"] == "reel":
+        raise BakerError("reel no lee archivos de texto: usa la herramienta reel (CLI: baker reel)")
     uso = {"modelo": None, "entrada": 0, "salida": 0, "intentos": 0}
     inicio, error, res = time.monotonic(), None, None
     try:

@@ -6,7 +6,9 @@ Modelos locales en Pixilate que leen por Claude. Claude Code orquesta; un Baker 
 Aerilate                                         Pixilate (RTX 3060)
 Claude Code ─MCP─┐                               llama-swap 127.0.0.1:8090
                  ├─ gateway (este paquete) ─HTTPS, tailnet, API key─▶ ├─ bonsai (llama.cpp-prism)
-Remi ─── CLI ────┘   lee archivos, valida,       tailscale serve :8090 └─ qwen   (llama.cpp)
+Remi ─── CLI ────┘   lee archivos, valida,       tailscale serve :8090 ├─ qwen   (llama.cpp)
+                     yt-dlp y ffmpeg (reel)                           ├─ vision (qwen + mmproj)
+                                                                      └─ whisper (whisper.cpp)
                      log ~/.bakers/log.jsonl                          vigilante.ps1 elige la marcha
 ```
 
@@ -20,6 +22,15 @@ Viven en [`src/bakers/bakers.toml`](src/bakers/bakers.toml). Agregar uno con un 
 |---|---|
 | `resumidor` | `resumen`, `puntos`, `alertas` |
 | `clasificador` | cada línea no vacía en una de las categorías dadas, en lotes de 40: `conteo` y `por_categoria` (archivo → números de línea) |
+| `reel` | por cada reel o video corto: `tema`, `idea_central`, `recursos`, `citas`, `texto_en_pantalla`, `visual`, `afirmaciones` y la ruta de un borrador `nota.md` |
+
+### `reel`
+
+Herramienta aparte (`reel(fuentes)` en el MCP, `baker reel` en la CLI) porque no lee texto: recibe enlaces o rutas de video de hasta 10 min. En Aerilate, `yt-dlp` baja el video con la sesión de Firefox (las cookies se leen al momento, no se guardan) y `ffmpeg` saca el audio (WAV de 16 kHz) y hasta 8 fotogramas parejos a 540 px. En Pixilate, `whisper` transcribe y `vision` (el mismo Qwen con su `mmproj`) recibe caption, transcripción y fotogramas en una sola llamada. Todo queda en `~/.bakers/reels/<id>/` (video, audio, fotogramas, `transcripcion.json`, `nota.md`), fuera de cualquier repo.
+
+La nota sigue el formato de la skill `inspiracion`, con dos huecos a propósito: los recursos salen como no verificados y la sección Aplicación queda pendiente, porque el modelo no conoce los proyectos. Eso lo completa Claude. Solo piezas que Remi comparte, una por enlace: nada de rastrear cuentas ni guardados.
+
+`whisper` y `vision` forman el grupo `reel` de llama-swap: se cargan juntos (~6 GB) y sacan a `bonsai` mientras dure el lote. No pasan por las marchas; con la marcha `ninguna` el gateway se niega antes de bajar nada.
 
 ## Marchas
 
@@ -35,7 +46,7 @@ Baja al momento, sube solo tras un minuto cabiendo y descarga un modelo que ya n
 
 ## Pixilate (una vez)
 
-Necesita `~\bakers\` con los dos llama.cpp y los modelos de 1.0a. Desde la raíz del clon:
+Necesita `~\bakers\` con los dos llama.cpp y los modelos de 1.0a. Para `reel`, además: whisper.cpp b5454 (`whisper-bin-win-cuda-12.4.0-x64.zip` descomprimido en `whisper.cpp\`), `models\ggml-large-v3-turbo-q8_0.bin` y `models\mmproj-Qwen3.6-35B-A3B-F16.gguf` (es `mmproj-F16.gguf` de `unsloth/Qwen3.6-35B-A3B-GGUF`, renombrado). Desde la raíz del clon:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File bakers\pixilate\setup.ps1
@@ -59,9 +70,10 @@ claude mcp add --scope user bakers -- uv run --project "<ruta a 29.Bakery\bakers
 uv run baker status
 uv run baker run resumidor -f build.log -t "por qué falla el build"
 uv run baker run clasificador -f issues.txt -t "tipo de issue" -c bug -c idea -c duda
+uv run baker reel https://www.instagram.com/reel/<id>/ video.mp4
 ```
 
-Desde Claude Code: herramientas `bake(baker, tarea, rutas, categorias)` y `bakers_status()`. Cada llamada deja una línea en `~/.bakers/log.jsonl` (Baker, modelo que respondió, tokens que leyó y escribió el Baker, `claude_chars` = caracteres del pedido más la respuesta que paga Claude, intentos, segundos, error). Referencia medida: 1.7k tokens en 21 s con carga del modelo incluida; 30k tokens en 66 s.
+Desde Claude Code: herramientas `bake(baker, tarea, rutas, categorias)`, `reel(fuentes)` y `bakers_status()`. Cada llamada deja una línea en `~/.bakers/log.jsonl` (Baker, modelo que respondió, tokens que leyó y escribió el Baker, `claude_chars` = caracteres del pedido más la respuesta que paga Claude, intentos, segundos, error). Referencia medida: 1.7k tokens en 21 s con carga del modelo incluida; 30k tokens en 66 s.
 
 **Límite:** 32k tokens por llamada. Texto normal da ~3.5 caracteres por token; algo con hashes (un lockfile) da ~1.5. Si se pasa, el Baker responde "parte la tarea".
 

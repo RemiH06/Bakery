@@ -2,7 +2,7 @@
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
-from . import core
+from . import core, reel as _reel
 
 mcp = MCPServer("bakers")
 
@@ -19,6 +19,18 @@ def bake(baker: str, tarea: str, rutas: list[str], categorias: list[str] | None 
         return core.bake(baker, tarea, rutas, categorias)
     except core.BakerError as e:
         raise ToolError(str(e)) from e  # MCP oculta el texto de cualquier otra excepción
+
+
+@mcp.tool(description="""Turn reels or short videos (Instagram, TikTok, Shorts; links or local files, up to 10 min)
+into inspiration notes on Pixilate: transcript, on-screen text, resources, quotes, visuals, claims to verify.
+Only pieces the user shared, one link each: never crawl accounts, feeds or saved lists.
+Returns one dict per source with the note fields and the path of a draft nota.md (or `error`).
+Resources come back unverified, and the Aplicación section is left for you to write.""")
+def reel(fuentes: list[str]) -> list[dict]:
+    try:
+        return _reel.reel(fuentes)
+    except core.BakerError as e:
+        raise ToolError(str(e)) from e
 
 
 @mcp.tool(description="Which model serves each Baker and which models llama-swap has loaded right now.")

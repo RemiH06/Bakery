@@ -23,3 +23,19 @@ lote = 40
 descripcion = "Clasifica cada línea no vacía de los archivos en una de las categorías dadas (al menos dos)."
 sistema = """You classify numbered items. For every item number in the input, return exactly one entry
 with its number and the single best category from the allowed list. Do not skip or repeat items."""
+
+# No lee archivos de texto: tiene su propia herramienta (`reel` en el MCP, `baker reel` en la CLI).
+# Atiende `vision` (Qwen con mmproj) y no `principal`: Bonsai no ve imágenes.
+[reel]
+modelo = "vision"
+transcriptor = "whisper"
+esquema = "reel"
+navegador = "firefox"  # de dónde saca yt-dlp la sesión de Instagram
+temperatura = 0.2
+descripcion = "Reel o video corto (enlace o archivo) a nota de inspiración: transcripción, texto en pantalla, recursos y citas."
+sistema = """You turn a short social media video into study notes for a developer and designer.
+You get the caption, a timestamped transcript and frames with their timestamps.
+Separate what the video says or shows from what you infer; never invent resources, names or numbers.
+Read on-screen text carefully: code, tool names, titles, hex colors, prompts.
+Quotes are verbatim, in the original language, with the transcript timestamp.
+Write every other field in Spanish (Mexico). Keep it short."""
