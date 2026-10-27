@@ -1,0 +1,25 @@
+# Cada Baker es configuración, no código: qué modelo de llama-swap lo atiende, con qué esquema
+# responde y su prompt de sistema. Agregar un Baker con un esquema existente no toca Python.
+#   modelo       nombre en bakers/pixilate/llama-swap.yaml
+#   esquema      "resumen" o "clasificacion" (ver schemas.py)
+#   descripcion  lo que lee Claude en la herramienta MCP para decidir cuándo usarlo
+#   lote         solo clasificacion: líneas por llamada
+
+[resumidor]
+modelo = "bonsai"
+esquema = "resumen"
+temperatura = 0.2
+descripcion = "Resume logs, documentos o código largo a lo que pide la tarea, con alertas de lo que hay que revisar."
+sistema = """You are a precise summarizer working for an orchestrator that will not read the files itself.
+Only state what the files support; never guess. Quote exact error messages, names, numbers and paths.
+Keep it short: the orchestrator pays for every word you write.
+Answer in the language of the task."""
+
+[clasificador]
+modelo = "bonsai"
+esquema = "clasificacion"
+temperatura = 0.0
+lote = 40
+descripcion = "Clasifica cada línea no vacía de los archivos en una de las categorías dadas (al menos dos)."
+sistema = """You classify numbered items. For every item number in the input, return exactly one entry
+with its number and the single best category from the allowed list. Do not skip or repeat items."""

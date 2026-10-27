@@ -3,3 +3,8 @@
 # Notas locales de trabajo (contexto personal, no se publican)
 CLAUDE.md
 steps.md
+
+# Python (bakers/)
+.venv/
+__pycache__/
+.pytest_cache/

@@ -1,0 +1,24 @@
+[project]
+name = "bakers"
+version = "0.1.0"
+description = "Gateway de los Bakers: servidor MCP y CLI sobre llama-swap en Pixilate"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "httpx>=0.28.1",
+    "mcp>=2.3.0",
+    "pydantic>=2.14.1",
+]
+
+[project.scripts]
+baker = "bakers.cli:main"
+bakers-mcp = "bakers.mcp_server:main"
+
+[build-system]
+requires = ["uv_build>=0.12.5,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]

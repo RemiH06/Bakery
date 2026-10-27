@@ -1,0 +1,34 @@
+# llama-swap en Pixilate: un endpoint compatible con OpenAI en 127.0.0.1:8090; el campo `model`
+# de cada llamada decide qué llama-server arranca (uno a la vez, la VRAM no da para dos).
+# Corre desde ~\bakers (setup.ps1), por eso las rutas son relativas. Se recarga solo al editarlo.
+
+healthCheckTimeout: 300  # Qwen pesa 22 GB: cargarlo desde disco tarda
+logLevel: info
+startPort: 10001         # puertos internos de cada llama-server, solo loopback
+sendLoadingState: false  # el estado de carga se inyecta como texto y rompería el JSON forzado
+
+# Sin llave no responde. El valor vive en ~\bakers\api-key.txt, nunca en el repo.
+apiKeys:
+  - "${env.BAKERS_API_KEY}"
+
+macros:
+  # Contexto de 32k en un solo slot (con -np auto se reparte entre varios), sin pensar:
+  # un Baker es una función de un paso y el razonamiento solo gasta tiempo.
+  "comunes": "--host 127.0.0.1 --port ${PORT} -c 32768 -np 1 -fa on --reasoning off --no-webui"
+
+models:
+  # Principal: 7.9 GB de VRAM, 36 tok/s (medido en 1.0a). Pide el fork de PrismML.
+  "bonsai":
+    name: "Ternary Bonsai 2 27B PQ2_0"
+    cmd: |
+      llama.cpp-prism/llama-server.exe ${comunes}
+      -m models/Ternary-Bonsai-2-27B-PQ2_0.gguf -ngl 99
+    ttl: 600  # se descarga tras 10 min sin uso y deja la GPU libre
+
+  # Respaldo y primera marcha baja: todos los expertos en RAM, 3.7 GB de VRAM, 19 tok/s.
+  "qwen":
+    name: "Qwen3.6 35B-A3B UD-Q4_K_XL"
+    cmd: |
+      llama.cpp/llama-server.exe ${comunes}
+      -m models/Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf -ngl 99 -ncmoe 99
+    ttl: 600
