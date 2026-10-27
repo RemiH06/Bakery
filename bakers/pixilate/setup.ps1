@@ -24,12 +24,22 @@ if (-not (Test-Path $key)) {
     $bytes = [byte[]]::new(36)
     [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
     Set-Content $key -NoNewline -Encoding ascii -Value ('sk-' + [Convert]::ToBase64String($bytes).Replace('+', '-').Replace('/', '_'))
-    icacls $key /inheritance:r /grant:r "${env:USERNAME}:(R,W)" | Out-Null
+    # Con el nombre de la máquina: la cuenta se llama igual que el equipo y "Pixilate2" a secas resuelve al equipo
+    icacls $key /inheritance:r /grant:r "${env:COMPUTERNAME}\${env:USERNAME}:(R,W)" | Out-Null
 }
 
 # La llave entra por variable de entorno del proceso, no por argumento (los argumentos se ven en el administrador de tareas)
-$cmd = "`$env:BAKERS_API_KEY = Get-Content '$key' -Raw; .\llama-swap\llama-swap.exe -config '$config' -listen 127.0.0.1:8090"
+$cmd = "`$env:BAKERS_API_KEY = Get-Content '$key' -Raw; .\llama-swap\llama-swap.exe -config '$config' -listen 127.0.0.1:8090 -watch-config"
+# Reinicio limpio: `job.ps1 stop` no mata a los hijos y un llama-server huérfano se queda con la VRAM
+if (Get-ScheduledTask 'bakery-bakers' -EA SilentlyContinue) {
+    & $job stop bakers
+    Stop-Process -Name llama-swap, llama-server -Force -EA SilentlyContinue
+}
 & $job start bakers $root $cmd -AtStartup
+
+# Vigilante de marchas, en el mismo proceso de la tarea para que `stop` sí lo detenga
+if (Get-ScheduledTask 'bakery-bakers-vigilante' -EA SilentlyContinue) { & $job stop bakers-vigilante }
+& $job start bakers-vigilante $root "& '$PSScriptRoot\vigilante.ps1'" -AtStartup
 
 # Solo al tailnet, en su propio puerto HTTPS (el 443 es de otro servicio). Persiste entre reinicios.
 tailscale serve --bg --https=8090 http://127.0.0.1:8090

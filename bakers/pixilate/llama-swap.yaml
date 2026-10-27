@@ -11,6 +11,26 @@ sendLoadingState: false  # el estado de carga se inyecta como texto y rompería 
 apiKeys:
   - "${env.BAKERS_API_KEY}"
 
+# Marchas: los Bakers piden el ID virtual `principal` y el perfil activo decide qué modelo lo atiende.
+# vigilante.ps1 cambia de perfil según la VRAM libre; al arrancar (o recargar) se empieza en `alta`.
+hooks:
+  on_startup:
+    profile: "alta"
+
+profiles:
+  "alta":
+    description: "GPU libre: Bonsai completo en VRAM"
+    pins:
+      "principal": "bonsai"
+  "media":
+    description: "Algo más usa la GPU (un juego): Qwen con expertos en RAM"
+    pins:
+      "principal": "qwen"
+  "ninguna":
+    description: "Ni Qwen cabe: los Bakers responden error y Claude delega en otro lado"
+    pins:
+      "principal": ~
+
 macros:
   # Contexto de 32k en un solo slot (con -np auto se reparte entre varios), sin pensar:
   # un Baker es una función de un paso y el razonamiento solo gasta tiempo.

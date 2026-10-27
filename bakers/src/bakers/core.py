@@ -17,7 +17,8 @@ from .schemas import Resumen, clasificacion
 
 BAKERS: dict[str, dict] = tomllib.loads(files("bakers").joinpath("bakers.toml").read_text("utf-8"))
 LOG = Path.home() / ".bakers" / "log.jsonl"
-# shortcut: tope por caracteres (~3.5 por token) para no pasar del contexto de 32k; medir con /tokenize si se queda corto.
+# Filtro barato antes de mandar nada; el límite real lo pone llama-server (32k tokens) y su error se traduce abajo.
+# Texto normal da ~3.5 caracteres por token, pero un lockfile con hashes da ~1.5 (medido el 2026-10-27).
 MAX_CHARS = 90_000
 MAX_BYTES = 20_000_000  # no leer un archivo enorme solo para rechazarlo después
 INTENTOS = 2  # el primero más un reintento; después, error para que Claude decida
@@ -74,6 +75,13 @@ def _llamar(c: httpx.Client, cfg: dict, mensaje: str, esquema: type[BaseModel], 
             r = c.post("/v1/chat/completions", json=cuerpo)
         except httpx.HTTPError as e:
             raise BakerError(f"Sin conexión con llama-swap en {c.base_url}: {e!r}") from e
+        if r.is_error and "no model id" in r.text:
+            raise BakerError("Ningún modelo cabe ahora en Pixilate (marcha 'ninguna', probablemente un juego): "
+                             "delega en Haiku o lee en la sesión")
+        if r.is_error and "exceed_context_size_error" in r.text:
+            err = r.json()["error"]
+            raise BakerError(f"{err['n_prompt_tokens']} tokens pasan el contexto de {err['n_ctx']}: "
+                             "parte la tarea en varias llamadas")
         if r.is_error:
             raise BakerError(f"llama-swap respondió {r.status_code}: {r.text[:500]}")
         datos = r.json()
@@ -153,11 +161,18 @@ def _registrar(**campos) -> None:
 
 
 def estado() -> dict:
-    """Qué modelo atiende cada Baker y qué tiene cargado llama-swap ahora."""
+    """Qué marcha eligió el vigilante, a qué modelo apunta cada Baker y qué está cargado."""
     with _cliente(timeout=10) as c:
         try:
-            r = c.get("/running")
-            r.raise_for_status()
+            perfiles, corriendo = c.get("/api/profiles"), c.get("/running")
+            perfiles.raise_for_status()
+            corriendo.raise_for_status()
         except httpx.HTTPError as e:
             raise BakerError(f"Sin respuesta de llama-swap en {c.base_url}: {e!r}") from e
-    return {"bakers": {n: cfg["modelo"] for n, cfg in BAKERS.items()}, "cargados": r.json()}
+    activo = perfiles.json()["active"]
+    pins = next((p["pins"] for p in perfiles.json()["profiles"] if p["id"] == activo), {})
+    return {
+        "marcha": activo,
+        "bakers": {n: pins.get(cfg["modelo"], cfg["modelo"]) or None for n, cfg in BAKERS.items()},
+        "cargados": [m["model"] for m in corriendo.json()["running"]],
+    }

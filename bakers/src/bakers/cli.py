@@ -18,6 +18,7 @@ def main() -> None:
     a = ap.parse_args()
 
     sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
     try:
         res = core.bake(a.baker, a.tarea, a.rutas, a.categorias) if a.cmd == "run" else core.estado()
     except core.BakerError as e:

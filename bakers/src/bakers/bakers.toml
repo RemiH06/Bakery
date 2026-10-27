@@ -1,12 +1,12 @@
 # Cada Baker es configuración, no código: qué modelo de llama-swap lo atiende, con qué esquema
 # responde y su prompt de sistema. Agregar un Baker con un esquema existente no toca Python.
-#   modelo       nombre en bakers/pixilate/llama-swap.yaml
+#   modelo       ID en bakers/pixilate/llama-swap.yaml; "principal" sigue la marcha del vigilante
 #   esquema      "resumen" o "clasificacion" (ver schemas.py)
 #   descripcion  lo que lee Claude en la herramienta MCP para decidir cuándo usarlo
 #   lote         solo clasificacion: líneas por llamada
 
 [resumidor]
-modelo = "bonsai"
+modelo = "principal"
 esquema = "resumen"
 temperatura = 0.2
 descripcion = "Resume logs, documentos o código largo a lo que pide la tarea, con alertas de lo que hay que revisar."
@@ -16,7 +16,7 @@ Keep it short: the orchestrator pays for every word you write.
 Answer in the language of the task."""
 
 [clasificador]
-modelo = "bonsai"
+modelo = "principal"
 esquema = "clasificacion"
 temperatura = 0.0
 lote = 40
