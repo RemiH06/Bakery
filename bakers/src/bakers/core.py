@@ -137,20 +137,25 @@ def bake(baker: str, tarea: str, rutas: list[str], categorias: list[str] | None 
         raise BakerError(f"No existe el Baker {baker!r}; hay: {', '.join(BAKERS)}")
     cfg = BAKERS[baker]
     uso = {"modelo": None, "entrada": 0, "salida": 0, "intentos": 0}
-    inicio, error = time.monotonic(), None
+    inicio, error, res = time.monotonic(), None, None
     try:
         textos = leer(rutas)
         # tiempo largo: la primera llamada puede esperar a que llama-swap cargue el modelo desde disco
         with _cliente(timeout=600) as c:
             if cfg["esquema"] == "resumen":
-                return _resumir(c, cfg, tarea, textos, uso)
-            return _clasificar(c, cfg, tarea, textos, categorias, uso)
+                res = _resumir(c, cfg, tarea, textos, uso)
+            else:
+                res = _clasificar(c, cfg, tarea, textos, categorias, uso)
+        return res
     except Exception as e:
         error = str(e)
         raise
     finally:
+        # Lo que Claude paga por la llamada (pedido + respuesta); contra `entrada` da la razón 5 a 1
+        pedido = len(json.dumps([tarea, rutas, categorias], ensure_ascii=False))
+        respuesta = len(json.dumps(res, ensure_ascii=False)) if res is not None else len(error or "")
         _registrar(baker=baker, archivos=len(rutas), segundos=round(time.monotonic() - inicio, 2),
-                   ok=error is None, error=error, **uso)
+                   ok=error is None, error=error, claude_chars=pedido + respuesta, **uso)
 
 
 def _registrar(**campos) -> None:

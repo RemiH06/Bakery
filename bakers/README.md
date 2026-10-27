@@ -61,11 +61,11 @@ uv run baker run resumidor -f build.log -t "por qué falla el build"
 uv run baker run clasificador -f issues.txt -t "tipo de issue" -c bug -c idea -c duda
 ```
 
-Desde Claude Code: herramientas `bake(baker, tarea, rutas, categorias)` y `bakers_status()`. Cada llamada deja una línea en `~/.bakers/log.jsonl` (Baker, modelo que respondió, tokens de entrada y salida, intentos, segundos, error). Referencia medida: 1.7k tokens en 21 s con carga del modelo incluida; 30k tokens en 66 s.
+Desde Claude Code: herramientas `bake(baker, tarea, rutas, categorias)` y `bakers_status()`. Cada llamada deja una línea en `~/.bakers/log.jsonl` (Baker, modelo que respondió, tokens que leyó y escribió el Baker, `claude_chars` = caracteres del pedido más la respuesta que paga Claude, intentos, segundos, error). Referencia medida: 1.7k tokens en 21 s con carga del modelo incluida; 30k tokens en 66 s.
 
 **Límite:** 32k tokens por llamada. Texto normal da ~3.5 caracteres por token; algo con hashes (un lockfile) da ~1.5. Si se pasa, el Baker responde "parte la tarea".
 
-**Cuándo conviene:** si lo que lee el Baker supera por 5 a 1 lo que Claude gasta en pedirlo y leer la respuesta. Para comparar, la telemetría de Claude Code (`CLAUDE_CODE_ENABLE_TELEMETRY=1`).
+**Cuándo conviene:** si lo que lee el Baker supera por 5 a 1 lo que Claude gasta en pedirlo y leer la respuesta. Del log sale directo: `entrada` contra `claude_chars / 3.5` (aproximado; la telemetría de Claude Code, `CLAUDE_CODE_ENABLE_TELEMETRY=1`, da el gasto exacto de la sesión).
 
 ## Seguridad
 

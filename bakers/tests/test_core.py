@@ -42,9 +42,10 @@ def test_resumen_valida_y_registra(llama, tmp_path):
     assert "ERROR: falta numpy" in recibidos[0]["messages"][1]["content"]
     assert recibidos[0]["response_format"]["json_schema"]["name"] == "Resumen"
     (linea,) = log(tmp_path)
-    assert linea | {"ts": None} == {"ts": None, "baker": "resumidor", "archivos": 1, "segundos": linea["segundos"],
-                                    "ok": True, "error": None, "modelo": "bonsai", "entrada": 100, "salida": 10,
-                                    "intentos": 1}
+    assert linea["claude_chars"] > 0
+    assert linea | {"ts": None, "claude_chars": None} == {
+        "ts": None, "claude_chars": None, "baker": "resumidor", "archivos": 1, "segundos": linea["segundos"],
+        "ok": True, "error": None, "modelo": "bonsai", "entrada": 100, "salida": 10, "intentos": 1}
 
 
 def test_reintenta_una_vez_y_luego_falla(llama, tmp_path):
