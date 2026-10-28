@@ -101,14 +101,19 @@ def _tipo(error: str) -> str:
 
 
 def agregar(archivo: str) -> dict:
-    """Un enlace por renglón; lo escrito antes del enlace ("Osiris: https://...") se guarda como etiqueta."""
+    """Un enlace por renglón; lo escrito antes del enlace ("Osiris: https://...") se guarda como etiqueta
+    y el último encabezado ("# Política") como sección: es la clasificación que Remi ya hizo a mano."""
     ruta = Path(archivo).expanduser()
     if not ruta.is_file():
         raise BakerError(f"No existe {ruta}")
     cuenta = {"agregados": 0, "repetidos": 0, "ya_bajados": 0, "sin_enlace": 0}
 
     def fn(e: dict) -> None:
+        seccion = None
         for linea in ruta.read_text("utf-8").splitlines():
+            if linea.startswith("#"):
+                seccion = linea.strip("# ").strip() or None
+                continue
             m = re.search(r"https?://\S+", linea)
             if not m:
                 cuenta["sin_enlace"] += bool(linea.strip())
@@ -123,7 +128,7 @@ def agregar(archivo: str) -> dict:
                 cuenta["ya_bajados"] += 1
             else:
                 e["items"][clave] = {"url": url, "etiqueta": linea[:m.start()].strip(" :-") or None,
-                                     "estado": "pendiente", "intentos": 0}
+                                     "seccion": seccion, "estado": "pendiente", "intentos": 0}
                 cuenta["agregados"] += 1
 
     e = _cambiar(fn)
@@ -221,7 +226,7 @@ def estado() -> dict:
             "proximo": e["pausa_hasta"], "motivo": e["motivo"], "fallidos": fallidos}
 
 
-def analizar(destino: str, lote: int = LOTE) -> dict:
+def analizar(destino: str, lote: int = LOTE, modelo: str | None = None) -> dict:
     """Corre `reel` sobre lo ya bajado, en lotes, solo con la marcha `alta` (con un juego abierto la
     visión no cabe junto a él). Nunca descarga de Instagram: si falta el video, el enlace vuelve a pendiente."""
     while True:
@@ -242,7 +247,7 @@ def analizar(destino: str, lote: int = LOTE) -> dict:
             time.sleep(300)
             continue
         claves = listos[:lote]
-        res = reel.reel([e["items"][k]["url"] for k in claves], destino)
+        res = reel.reel([e["items"][k]["url"] for k in claves], destino, modelo)
 
         def anotar(e: dict) -> None:
             for k, r in zip(claves, res):

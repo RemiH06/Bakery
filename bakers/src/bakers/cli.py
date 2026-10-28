@@ -25,6 +25,7 @@ def main() -> None:
     ca = cs.add_parser("analizar", help="corre `reel` sobre lo ya bajado, sin tocar Instagram")
     ca.add_argument("-d", "--destino", required=True, help="carpeta de notas del proyecto")
     ca.add_argument("--lote", type=int, default=cola.LOTE)
+    ca.add_argument("-m", "--modelo", help="cambia el de bakers.toml, p. ej. vision-abliterado")
     cs.add_parser("estado", help="bajados, pendientes, fallidos y próximo intento")
     sub.add_parser("status", help="qué modelo atiende cada Baker y cuál está cargado")
     sys.stdout.reconfigure(encoding="utf-8")  # antes de parsear: la ayuda también lleva acentos
@@ -37,7 +38,7 @@ def main() -> None:
             res = reel.reel(a.fuentes, a.destino)
         elif a.cmd == "cola":
             res = {"agregar": lambda: cola.agregar(a.archivo), "bajar": lambda: cola.bajar(a.tope),
-                   "analizar": lambda: cola.analizar(a.destino, a.lote), "estado": cola.estado}[a.accion]()
+                   "analizar": lambda: cola.analizar(a.destino, a.lote, a.modelo), "estado": cola.estado}[a.accion]()
         else:
             res = core.estado()
     except core.BakerError as e:

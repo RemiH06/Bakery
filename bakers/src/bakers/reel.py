@@ -221,9 +221,11 @@ def _uno(c: httpx.Client, cfg: dict, fuente: str, destino: Path | None) -> dict:
                         ok=error is None, error=error, claude_chars=len(fuente) + respuesta, pasos=pasos, **uso)
 
 
-def reel(fuentes: list[str], destino: str | None = None) -> list[dict]:
+def reel(fuentes: list[str], destino: str | None = None, modelo: str | None = None) -> list[dict]:
     """Una nota por fuente (enlace o archivo local). Un fallo no detiene a las demás: queda en su `error`.
-    `destino` es la carpeta de notas del proyecto; sin ella, la nota se queda junto al material."""
+    `destino` es la carpeta de notas del proyecto; sin ella, la nota se queda junto al material.
+    `modelo` cambia el de `bakers.toml` (p. ej. `vision-abliterado`, que no está en el grupo `reel`:
+    whisper y él se turnan la VRAM en cada reel)."""
     if not fuentes:
         raise BakerError("Sin fuentes: pasa enlaces de reels o rutas de videos")
     carpeta = None
@@ -235,7 +237,7 @@ def reel(fuentes: list[str], destino: str | None = None) -> list[dict]:
     if core.estado()["marcha"] == "ninguna":
         raise BakerError("Pixilate no tiene VRAM libre (marcha 'ninguna', probablemente un juego): "
                          "usa la skill inspiracion a mano")
-    cfg = core.BAKERS["reel"]
+    cfg = core.BAKERS["reel"] if modelo is None else {**core.BAKERS["reel"], "modelo": modelo}
     # whisper y vision quedan cargados juntos (grupo `reel` de llama-swap) mientras dure el lote
     with core._cliente(timeout=600) as c:
         return [_uno(c, cfg, f, carpeta) for f in fuentes]

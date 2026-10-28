@@ -59,6 +59,7 @@ def test_agregar_limpia_y_no_repite(reloj, tmp_path):
     (ya / "video.mp4").write_bytes(b"x")
     res = cola.agregar(_enlaces(tmp_path,
                                 "https://www.instagram.com/reel/AAA/?stkn=MXc5",
+                                "# Proyecto",
                                 "Osiris: https://www.instagram.com/reels/BBB/",
                                 "https://www.instagram.com/reel/AAA/?igsh=otro",
                                 "https://www.instagram.com/p/CCC/?img_index=1",
@@ -67,7 +68,8 @@ def test_agregar_limpia_y_no_repite(reloj, tmp_path):
     assert res == {"agregados": 3, "repetidos": 1, "ya_bajados": 1, "sin_enlace": 1, "en_cola": 3}
     items = cola._leer()["items"]
     assert items["AAA"]["url"] == "https://www.instagram.com/reel/AAA/"
-    assert items["BBB"]["etiqueta"] == "Osiris"
+    assert items["BBB"]["etiqueta"] == "Osiris" and items["BBB"]["seccion"] == "Proyecto"
+    assert items["AAA"]["seccion"] is None
     assert items["CCC"]["url"] == "https://www.instagram.com/p/CCC/"
 
 
@@ -153,14 +155,15 @@ def test_analizar_espera_marcha_y_no_baja(monkeypatch, reloj, tmp_path):
     monkeypatch.setattr(cola.time, "sleep", esperas.append)
     lotes = []
 
-    def reel_falso(fuentes, destino):
+    def reel_falso(fuentes, destino, modelo):
+        assert modelo == "vision-abliterado"
         lotes.append(fuentes)
         return [{"fuente": f, "error": "bucle"} if "BBB" in f else {"fuente": f, "nota": f"{destino}/{f[-4:-1]}.md"}
                 for f in fuentes]
 
     monkeypatch.setattr(reel, "reel", reel_falso)
     monkeypatch.setattr(reel, "_obtener", lambda *a: pytest.fail("analizar no debe descargar"))
-    res = cola.analizar(str(tmp_path / "notas"), lote=2)
+    res = cola.analizar(str(tmp_path / "notas"), lote=2, modelo="vision-abliterado")
     assert esperas == [300]
     assert lotes[0] == ["https://www.instagram.com/reel/AAA/", "https://www.instagram.com/reel/BBB/"]
     assert res["conteo"] == {"analizado": 2, "fallido": 1}  # BBB falló dos veces
