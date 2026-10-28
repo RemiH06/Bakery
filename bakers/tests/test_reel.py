@@ -66,7 +66,7 @@ def test_fuente_invalida_no_detiene_el_lote(monkeypatch, tmp_path):
 
 
 def test_bake_rechaza_reel():
-    with pytest.raises(core.BakerError, match="herramienta reel"):
+    with pytest.raises(core.BakerError, match="propia herramienta"):
         core.bake("reel", "t", ["x"])
 
 

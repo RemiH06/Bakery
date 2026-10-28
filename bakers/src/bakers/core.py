@@ -65,13 +65,14 @@ def _tope(mensaje: str) -> str:
 
 
 def _llamar(c: httpx.Client, cfg: dict, mensaje: str | list[dict], esquema: type[BaseModel], uso: dict,
-            revisar: Callable[[BaseModel], None] = lambda _: None) -> BaseModel:
-    """`mensaje` es texto o, para un modelo con visión, la lista de partes (texto e imágenes) de OpenAI."""
+            revisar: Callable[[BaseModel], None] = lambda _: None, historial: list[dict] = ()) -> BaseModel:
+    """`mensaje` es texto o, para un modelo con visión, la lista de partes (texto e imágenes) de OpenAI.
+    `historial` son los turnos previos (`role` y `content`) de un Baker multi-turno, entre sistema y mensaje."""
     cuerpo = {
         "model": cfg["modelo"],
         "temperature": cfg["temperatura"],
-        "max_tokens": MAX_SALIDA,
-        "messages": [{"role": "system", "content": cfg["sistema"]},
+        "max_tokens": cfg.get("max_salida", MAX_SALIDA),
+        "messages": [{"role": "system", "content": cfg["sistema"]}, *historial,
                      {"role": "user", "content": _tope(mensaje) if isinstance(mensaje, str) else mensaje}],
         "response_format": {
             "type": "json_schema",
@@ -99,7 +100,7 @@ def _llamar(c: httpx.Client, cfg: dict, mensaje: str | list[dict], esquema: type
         uso["intentos"] += 1
         # Reintentar no sirve: con temperatura baja el bucle se repite
         if datos["choices"][0].get("finish_reason") == "length":
-            raise BakerError(f"El modelo llegó al tope de {MAX_SALIDA} tokens sin cerrar la respuesta (bucle): "
+            raise BakerError(f"El modelo llegó al tope de {cuerpo['max_tokens']} tokens sin cerrar la respuesta (bucle): "
                              "acota la tarea o pártela")
         # llama.cpp ignora en silencio palabras de JSON Schema que no soporta: se valida otra vez aquí
         try:
@@ -148,8 +149,8 @@ def bake(baker: str, tarea: str, rutas: list[str], categorias: list[str] | None 
     if baker not in BAKERS:
         raise BakerError(f"No existe el Baker {baker!r}; hay: {', '.join(BAKERS)}")
     cfg = BAKERS[baker]
-    if cfg["esquema"] == "reel":
-        raise BakerError("reel no lee archivos de texto: usa la herramienta reel (CLI: baker reel)")
+    if cfg["esquema"] in ("reel", "chat"):
+        raise BakerError(f"{baker} no lee archivos de texto: tiene su propia herramienta (CLI: baker {baker})")
     uso = {"modelo": None, "entrada": 0, "salida": 0, "intentos": 0}
     inicio, error, res = time.monotonic(), None, None
     try:

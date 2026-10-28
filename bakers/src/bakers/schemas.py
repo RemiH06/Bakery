@@ -90,3 +90,9 @@ def clasificacion(categorias: list[str]) -> type[BaseModel]:
     """Esquema con las categorías como enum: la gramática no deja inventar otras."""
     item = create_model("Item", n=(int, Field(ge=1)), categoria=(Literal[tuple(categorias)], ...))
     return create_model("Clasificacion", items=(list[item], ...))
+
+
+class Respuesta(BaseModel):
+    """Turno del Baker `chat`. `escalar` lo lee el código, no el cliente: marca la conversación para el dueño."""
+    respuesta: str = Field(description="What the guest reads")
+    escalar: bool = Field(description="True when the sheet does not answer the question")

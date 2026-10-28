@@ -24,6 +24,25 @@ Viven en [`src/bakers/bakers.toml`](src/bakers/bakers.toml). Agregar uno con un 
 | `fichero` | ficha de especie desde varias fuentes: nombres, `descripcion`, `datos` y `ubicaciones_iteso` con fuente, `interacciones`, `contradicciones` (solo entre fuentes) y `faltantes` |
 | `clasificador` | cada línea no vacía en una de las categorías dadas, en lotes de 40: `conteo` y `por_categoria` (archivo → números de línea) |
 | `reel` | por cada reel o video corto: `tema`, `idea_central`, `recursos`, `citas`, `texto_en_pantalla`, `visual`, `afirmaciones` y la ruta de un borrador `nota.md` |
+| `chat` | por turno de una conversación con un cliente: `respuesta` y `escalar` |
+
+### `chat`
+
+Atención a clientes de un negocio o un Airbnb, de varios turnos y de cara a terceros. No es para Claude: no está en el MCP y `bake` lo rechaza. Cada conversación se liga a un producto y lleva su hoja (`~/.bakers/chat/hojas/<producto>.md`, Markdown libre: horarios, reglas, FAQ) al final del `sistema`, más el historial de esa conversación (los últimos 12k caracteres). Solo responde con la hoja; si no alcanza, o si piden precios, descuentos, excepciones o reservas que la hoja no trae, marca `escalar` y el cliente recibe un texto fijo de traspaso (`chat.TRASPASO`): una escalada nunca lleva datos del modelo. Con Pixilate apagado, en marcha `ninguna` o sin respuesta en 60 s, también recibe el traspaso, no un error.
+
+Lo que escribe el cliente es entrada no confiable: llega solo como turnos de usuario, el JSON forzado no lo deja salirse del formato, una respuesta que cite el `sistema` se descarta y se reintenta, y el Baker no tiene herramientas, así que lo peor que puede pasar es una respuesta mala, nunca una acción. Límites: 1,000 caracteres por mensaje, 40 mensajes del cliente por conversación, 512 tokens por respuesta.
+
+El historial vive en `~/.bakers/chat/chat.db` (SQLite) y las conversaciones sin mensajes en 30 días se borran solas. Las hojas reales y el historial son datos de terceros: nunca en un repo. El log guarda tiempos, tokens y si escaló, pero no el texto del cliente.
+
+```powershell
+uv run baker chat hablar casa-jacaranda          # conversación nueva en la terminal; vacío para salir
+uv run baker chat pendientes [producto]          # escaladas al dueño, con todos sus mensajes
+uv run baker chat eval tests/chat/casa-jacaranda.toml
+```
+
+El set de evaluación ([`tests/chat/`](tests/chat/), con una hoja ficticia) tiene 22 preguntas respondibles (aciertan si no escala y traen el dato esperado), 10 no respondibles (aciertan si escala) y 15 intentos de inyección (aciertan si no traen nada de `prohibido`). Corre en una base aparte. Con Bonsai (2026-10-28): 100 % en las tres en las dos últimas corridas, ~1.2 a 2 s por turno. Las reglas que hicieron falta: escalar en vez de deducir "no hay" de lo que la hoja no menciona, y el texto fijo de traspaso (antes el modelo lo redactaba cada vez distinto y a veces mencionaba "la información disponible"). Un acierto por subcadena no prueba que no haya inventado nada: después de cambiar el `sistema`, leer las respuestas completas.
+
+**Capacidad** ([`pixilate/carga.py`](pixilate/carga.py), 2026-10-28): con Bonsai y `-np 1`, los turnos se forman en la cola de llama-server y cada conversación activa suma ~1.4 s. p95 de 6.4 s con 4 conversaciones escribiendo sin pausa y 12.5 s con 8; unos 40 turnos por minuto en total, así que con huéspedes que escriben cada 30 a 60 s aguanta decenas de conversaciones abiertas. `-np 4 --kv-unified` no ayuda con Bonsai (cada conversación baja a 12 tok/s y el p95 sube). En la marcha `media`, Qwen relee el prompt con los expertos en RAM: 1 o 2 conversaciones activas, y si no, el traspaso a los 60 s. Tabla completa en `history.md`.
 
 ### `reel`
 
@@ -50,7 +69,7 @@ uv run baker cola analizar -d <carpeta de notas> [-m vision-abliterado]   # `ree
 
 `analizar` no descarga nunca: con un enlace de Instagram cuyo video falta, lo regresa a pendiente. Corre solo con la marcha `alta`; con otra espera 5 min y vuelve a mirar, porque con un juego abierto el grupo `reel` (~6 GB) no cabe. Un reel que falla dos veces el análisis queda como fallido. `analizar` termina cuando no queda nada bajado, así que se vuelve a correr conforme `bajar` avanza (de noche, por ejemplo); `-m` cambia el modelo de `bakers.toml` solo para esa corrida. Ojo: los enlaces que no son de Instagram (TikTok, Facebook) sí se vuelven a bajar al analizar, porque `_obtener` solo reconoce como ya bajados los códigos de Instagram.
 
-**Días seguidos en Aerilate.** Tiene que correr ahí porque ahí están las cookies de Firefox. Con [`remote/job.ps1`](../remote/job.ps1) (tarea programada S4U: sigue con la terminal o VS Code cerrados y vuelve a arrancar con Windows), desde `bakers/`:
+**Días seguidos en Aerilate.** Tiene que correr ahí porque ahí están las cookies de Firefox. Con [`remote/job.ps1`](../remote/job.ps1) (tarea programada S4U: sigue con la terminal o VS Code cerrados y vuelve a arrancar con Windows), desde `bakers/` en una PowerShell **de administrador** (registrar una tarea S4U o de arranque lo pide; sin eso, `Register-ScheduledTask` da "Acceso denegado"). La tarea corre igual con la cuenta de Remi, no como administrador:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File ..\remote\job.ps1 start cola . "uv run baker cola bajar" -AtStartup
