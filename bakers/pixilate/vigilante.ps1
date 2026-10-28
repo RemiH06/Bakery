@@ -7,16 +7,16 @@ param([int]$Extra = 0, [int]$ExtraRam = 0, [int]$Duracion = 0)
 $ErrorActionPreference = 'Stop'
 $api = 'http://127.0.0.1:8090'
 $auth = @{ Authorization = "Bearer $((Get-Content "$env:USERPROFILE\bakers\api-key.txt" -Raw).Trim())" }
-# VRAM y RAM propias de cada modelo con -c 32768, en MiB, sin lo del escritorio (medidas el 2026-10-27).
+# VRAM y RAM propias de cada modelo con el -c de llama-swap.yaml, en MiB, sin lo del escritorio (2026-10-27; `qwen`, `abliterado` y `bonsai-abliterado` en 1.0l).
 # Bonsai también copia el modelo a RAM (~9.5 GB residentes); Qwen deja ~4.6 GB privados más los expertos
 # mapeados del GGUF, que llegan a ~20 GB conforme se usan (si faltan, no truena: se vuelve lento leyendo disco).
 $marchas = @(
     @{ perfil = 'alta'; modelo = 'bonsai'; vram = 9100; ram = 10000 },
-    @{ perfil = 'media'; modelo = 'qwen'; vram = 3350; ram = 20000 },
+    @{ perfil = 'media'; modelo = 'qwen'; vram = 3600; ram = 20000 },
     @{ perfil = 'ninguna'; modelo = $null; vram = 0; ram = 0 }
 )
 # Modelos fuera de las marchas (se piden por nombre): su VRAM también es nuestra, no de un juego
-$fuera = @{ abliterado = 3350; whisper = 1500; vision = 4700; 'vision-abliterado' = 4700; 'qwen-gpu' = 11200 }
+$fuera = @{ abliterado = 6900; 'bonsai-abliterado' = 8900; whisper = 1500; vision = 4700; 'vision-abliterado' = 4700; 'qwen-gpu' = 11200 }
 $margen = 1024     # MiB de VRAM libres para que lo demás (el juego) no se quede corto
 $margenRam = 2048  # lo mismo en RAM
 $subirTras = 60    # segundos cabiendo sin interrupción antes de subir a esa marcha

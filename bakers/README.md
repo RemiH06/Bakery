@@ -91,7 +91,7 @@ Los Bakers piden el modelo virtual `principal`; el perfil activo de llama-swap d
 | `media` | `qwen`, expertos en RAM | ~3.8 GB con el escritorio (3.35 propios) | hasta ~7.9 GB |
 | `ninguna` | nada: el Baker responde error y Claude delega en otro lado | 0 | lo que sea |
 
-`whisper`, `vision`, `abliterado`, `vision-abliterado` y `qwen-gpu` no son marchas, pero su VRAM cuenta como nuestra, no como de un juego. Baja al momento, sube solo tras un minuto cabiendo y descarga un modelo que ya no cabe solo cuando no está respondiendo. Probar sin abrir un juego: `vigilante.ps1 -Extra 3000 -Duracion 30` simula 3 GB ocupados.
+`whisper`, `vision`, `abliterado`, `bonsai-abliterado`, `vision-abliterado` y `qwen-gpu` no son marchas, pero su VRAM cuenta como nuestra, no como de un juego. Baja al momento, sube solo tras un minuto cabiendo y descarga un modelo que ya no cabe solo cuando no está respondiendo. Probar sin abrir un juego: `vigilante.ps1 -Extra 3000 -Duracion 30` simula 3 GB ocupados.
 
 ## Pixilate (una vez)
 
@@ -129,6 +129,10 @@ Desde Claude Code: herramientas `bake(baker, tarea, rutas, categorias)`, `reel(f
 **Límite:** 32k tokens por llamada. Texto normal da ~3.5 caracteres por token; algo con hashes (un lockfile) da ~1.5. Si se pasa, el Baker responde "parte la tarea".
 
 **Cuándo conviene:** si lo que lee el Baker supera por 5 a 1 lo que Claude gasta en pedirlo y leer la respuesta. Del log sale directo: `entrada` contra `claude_chars / 3.5` (aproximado; la telemetría de Claude Code, `CLAUDE_CODE_ENABLE_TELEMETRY=1`, da el gasto exacto de la sesión).
+
+### Agente de código (Qwen Code)
+
+Qwen Code (Apache 2.0, `npm install -g @qwen-code/qwen-code`) habla con llama-swap como proveedor `openai`. En `~/.qwen/settings.json`: una entrada por modelo en `modelProviders.openai` con `baseUrl` = `BAKERS_URL` + `/v1`, `envKey` = `BAKERS_API_KEY` y `contextWindowSize` igual al `-c` del modelo (`abliterado` 131072, `bonsai-abliterado` 65536, `qwen` 32768). Apagar `privacy.usageStatisticsEnabled` (manda estadísticas a Alibaba por defecto), `telemetry.enabled`, `ui.enableFollowupSuggestions` y `ui.enableSpeculation` (con `-np 1`, cada llamada extra hace fila). Su primera llamada pesa ~14k tokens; después la caché de prompts en RAM de llama-server cubre lo repetido, aunque un Baker se meta entre turnos.
 
 ## Seguridad
 

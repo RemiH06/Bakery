@@ -45,22 +45,38 @@ models:
       -m models/Ternary-Bonsai-2-27B-PQ2_0.gguf -ngl 99
     ttl: 600  # se descarga tras 10 min sin uso y deja la GPU libre
 
-  # Respaldo y primera marcha baja: todos los expertos en RAM, 3.7 GB de VRAM, 19 tok/s.
+  # Respaldo y primera marcha baja: todos los expertos en RAM, 3.9 GB de VRAM, 19 tok/s.
+  # Con los expertos en RAM, leer el prompt es el cuello: con el -ub de 512 por defecto lee a 120 tok/s;
+  # -ub 2048 sube a ~390 por 0.25 GB más de VRAM (medido en 1.0l, 2026-10-28).
   "qwen":
     name: "Qwen3.6 35B-A3B UD-Q4_K_XL"
     cmd: |
       llama.cpp/llama-server.exe ${comunes}
-      -m models/Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf -ngl 99 -ncmoe 99
+      -m models/Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf -ngl 99 -ncmoe 99 -b 2048 -ub 2048
     ttl: 600
 
   # Qwen3.6 sin rechazos (abliterado por huihui-ai, Apache 2.0): fuera de las marchas, se pide por nombre.
   # Mismo reparto que `qwen`, ~17.6 tok/s. El GGUF trae capas MTP, pero con los expertos en RAM
   # `--spec-type draft-mtp` baja a 8.7 tok/s (acepta 31 % del borrador): apagado (medido el 2026-10-27).
+  # Agente de código (Qwen Code) y chats largos: 128k propios (el último -c gana sobre el de `comunes`)
+  # y -ub 4096, que lee a ~510 a 590 tok/s (128k en 4.3 min). ~6.9 GB de VRAM (medido en 1.0l).
   "abliterado":
-    name: "Huihui Qwen3.6 35B-A3B abliterated Q4_K"
+    name: "Huihui Qwen3.6 35B-A3B abliterated Q4_K, 128k"
     cmd: |
       llama.cpp/llama-server.exe ${comunes}
       -m models/Huihui-Qwen3.6-35B-A3B-abliterated-Q4_K.gguf -ngl 99 -ncmoe 99
+      -c 131072 -b 4096 -ub 4096
+    ttl: 600
+
+  # Bonsai abliterado (huihui-ai, capas 22 a 52; el autor lo marca "test/validation"). Pide el fork de
+  # PrismML. Entero en VRAM: 64k con la caché KV en q8_0 ocupa ~8.9 GB (en f16 llega a 10.8 y no deja
+  # margen). Lee a ~480 tok/s y genera a 26 con el contexto lleno (medido en 1.0l).
+  "bonsai-abliterado":
+    name: "Huihui Ternary Bonsai 27B abliterated PQ2_0, 64k"
+    cmd: |
+      llama.cpp-prism/llama-server.exe ${comunes}
+      -m models/Huihui-Qwen3.8-27B-abliterated-Ternary-Bonsai-PQ2_0.gguf -ngl 99
+      -c 65536 -ctk q8_0 -ctv q8_0
     ttl: 600
 
   # `abliterado` con su propio proyector de visión, para reels que `vision` se niega a describir.
