@@ -47,17 +47,27 @@ def _obtener(fuente: str, navegador: str) -> tuple[Path, dict]:
         return local, {}
     if not fuente.startswith(("http://", "https://")):
         raise BakerError(f"Ni archivo ni enlace: {fuente}")
+    # Ya bajado: reprocesar no vuelve a tocar Instagram (detecta actividad automatizada en la cuenta)
+    clave = re.search(r"/(?:reels?|p)/([\w-]+)", fuente)
+    previos = [v for v in (CARPETA / clave[1]).glob("video.*") if v.suffix != ".json"] if clave else []
+    if previos and (previos[0].parent / "video.info.json").is_file():
+        return previos[0], _metadatos(previos[0])
     CARPETA.mkdir(parents=True, exist_ok=True)
     # Instagram pide sesión: las cookies se leen del navegador al momento, nunca se copian a disco
-    salida = _correr("yt-dlp", "--cookies-from-browser", navegador, "--no-playlist", "--no-progress",
+    salida = _correr("yt-dlp", "--cookies-from-browser", navegador, "--sleep-requests", "2",
+                     "--no-playlist", "--no-progress",
                      "--match-filter", f"duration<={MAX_SEGUNDOS}", "-f", "b[ext=mp4]/b",
                      "--write-info-json", "-o", "%(id)s/video.%(ext)s", "--print", "after_move:filepath",
                      fuente, cwd=CARPETA)
     if not salida.strip():
         raise BakerError(f"yt-dlp no bajó nada (¿dura más de {MAX_SEGUNDOS} s?): {fuente}")
     video = Path(salida.strip().splitlines()[-1])
+    return video, _metadatos(video)
+
+
+def _metadatos(video: Path) -> dict:
     info = json.loads((video.parent / "video.info.json").read_text("utf-8"))
-    return video, {k: info.get(k) for k in ("channel", "uploader", "description", "webpage_url")}
+    return {k: info.get(k) for k in ("channel", "uploader", "description", "webpage_url")}
 
 
 def _sondear(video: Path) -> tuple[float, bool]:

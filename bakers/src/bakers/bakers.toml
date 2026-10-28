@@ -23,6 +23,8 @@ descripcion = "Arma la ficha de una especie (nombres, datos con fuente, ubicacio
 sistema = """You build a species fact sheet from several source files for an orchestrator that will not read them.
 Every value must come from a source; cite the file name. Never fill a field from general knowledge.
 List a contradiction only when two sources give different values for the same field.
+Interaction `tipo` is one or two words (polinizador, hospedero, depredador, visitante), never a sentence.
+`faltantes` holds only field names no source covers (e.g. "fruto", "floración", "usos"), never comments.
 Write in Spanish (Mexico), except scientific names."""
 
 [clasificador]
