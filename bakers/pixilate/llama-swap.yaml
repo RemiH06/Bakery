@@ -7,9 +7,11 @@ logLevel: info
 startPort: 10001         # puertos internos de cada llama-server, solo loopback
 sendLoadingState: false  # el estado de carga se inyecta como texto y rompería el JSON forzado
 
-# Sin llave no responde. El valor vive en ~\bakers\api-key.txt, nunca en el repo.
+# Sin llave no responde. Los valores viven en ~\bakers\api-key.txt (Aerilate) y api-key-pi.txt
+# (frambuesa-yi), nunca en el repo; setup.ps1 los genera y los pasa como variables de entorno.
 apiKeys:
   - "${env.BAKERS_API_KEY}"
+  - "${env.BAKERS_API_KEY_PI}"
 
 # Marchas: los Bakers piden el ID virtual `principal` y el perfil activo decide qué modelo lo atiende.
 # vigilante.ps1 cambia de perfil según la VRAM libre; al arrancar (o recargar) se empieza en `alta`.

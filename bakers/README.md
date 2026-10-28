@@ -152,7 +152,8 @@ ssh pixilate 'wsl -d Debian -- docker cp bakers-webui-open-webui-1:/tmp/webui-re
 ## Seguridad
 
 - llama-swap y cada llama-server escuchan solo en `127.0.0.1`; afuera solo llega `tailscale serve`, que exige estar en el tailnet. La ACL deja a los invitados solo en el 443.
-- Sin `Authorization: Bearer <llave>` llama-swap no responde. La llave no está en el repo; si se filtra, borrar `api-key.txt`, volver a correr `setup.ps1` y actualizar `BAKERS_API_KEY`.
+- Sin `Authorization: Bearer <llave>` llama-swap no responde. Una llave por cliente: `api-key.txt` (Aerilate) y `api-key-pi.txt` (frambuesa-yi, la Pi pública), ninguna en el repo. Si una se filtra, borrar solo ese archivo y volver a correr `setup.ps1`; la otra sigue igual.
+- La ACL de Tailscale deja a `tag:publico` (frambuesa-yi) llegar a Pixilate solo en el 8090, con pruebas en la política que lo verifican al guardar.
 - Cortar todo: `ssh pixilate "tailscale serve --https=8090 off"`.
 - La llave en Pixilate solo la lee la cuenta (`icacls` con `EQUIPO\cuenta`: si la cuenta se llama igual que el equipo, el nombre a secas resuelve al equipo).
 
