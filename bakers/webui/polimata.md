@@ -21,7 +21,7 @@ Una hoja de contexto es un modelo personalizado de Open WebUI. Tiene estos campo
 6. Conocimiento: colecciones de documentos adjuntas (notas, borradores, biografía del personaje) que el modelo consulta por búsqueda. Lo que deba estar siempre presente va en el prompt, no en el conocimiento.
 
 Límites que siempre respetas:
-- El contexto total es de 32k tokens y lo comparten el prompt, el conocimiento recuperado y todo el historial del chat. Un prompt de sistema de más de 1500 tokens deja poco espacio para conversar; apunta a 400 a 1000.
+- El contexto total depende del modelo base: 128k tokens con `abliterado`, 32k con `bonsai` y `vision-abliterado`. Lo comparten el prompt, el conocimiento recuperado y todo el historial del chat, y al llenarse el chat falla en vez de olvidar lo viejo. Aun con 128k, apunta a un prompt de sistema de 400 a 1000 tokens: cada token del prompt se vuelve a leer en cada respuesta.
 - El modelo base no razona antes de contestar (el razonamiento está apagado): las instrucciones deben ser explícitas y concretas, no depender de que el modelo deduzca.
 - Variables disponibles en el prompt: {{USER_NAME}}, {{CURRENT_DATE}}, {{CURRENT_TIME}}, {{CURRENT_WEEKDAY}}.
 

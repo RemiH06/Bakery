@@ -136,6 +136,19 @@ Qwen Code (Apache 2.0, `npm install -g @qwen-code/qwen-code`) habla con llama-sw
 
 Skills: solo un subconjunto de código, como junctions de `~/.qwen/skills/<nombre>` a `~/.claude/skills/<nombre>` (`New-Item -ItemType Junction`, sin administrador), para no mantener otra copia. Cada skill listada cuesta su descripción en cada llamada (~150 a 250 tokens) y el cuerpo solo al usarla; las que hablan de herramientas de Claude Code (subagentes, `bake`, artefactos) confunden al modelo. Lo que siempre aplica va en `~/.qwen/QWEN.md` (o `AGENTS.md` por proyecto), que entra completo en cada llamada: corto.
 
+### Chat a mano (Open WebUI)
+
+Open WebUI v0.12.4 en el Docker del WSL de Pixilate ([`webui/compose.yml`](webui/compose.yml)), en `127.0.0.1:8091` y publicado solo al tailnet con `tailscale serve --https=8091`. Habla con llama-swap por la URL del tailnet con la misma llave; la URL, la llave y `WEBUI_SECRET_KEY` van en `~/.config/bakers-webui.env` del WSL. Registro cerrado: otra cuenta se crea desde Admin. Las tareas de fondo (autocompletado, etiquetas, sugerencias, consultas de búsqueda) están apagadas porque con `-np 1` cada una hace fila contra los Bakers.
+
+- **Hojas de contexto:** modelos del Workspace. La hoja maestra que ayuda a escribir las demás está en [`webui/polimata.md`](webui/polimata.md).
+- **Contexto lleno:** llama-server responde 400 (`exceed_context_size_error`) y no recorta el historial: el chat falla en vez de olvidar. `abliterado` tiene 128k; `bonsai` y `vision-abliterado`, 32k.
+- **Respaldo:** historial, hojas y conocimiento viven en el volumen `bakers-webui_open-webui` (`webui.db`). Copiarlo con la API de backup de SQLite desde el contenedor, no el archivo en caliente:
+
+```bash
+ssh pixilate 'wsl -d Debian -- docker exec -i bakers-webui-open-webui-1 python -' < bakers/webui/respaldo.py   # copia consistente a /tmp
+ssh pixilate 'wsl -d Debian -- docker cp bakers-webui-open-webui-1:/tmp/webui-respaldo.db /mnt/c/Users/<cuenta>/bakers/respaldos/'
+```
+
 ## Seguridad
 
 - llama-swap y cada llama-server escuchan solo en `127.0.0.1`; afuera solo llega `tailscale serve`, que exige estar en el tailnet. La ACL deja a los invitados solo en el 443.
