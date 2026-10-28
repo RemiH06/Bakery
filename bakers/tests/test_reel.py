@@ -73,3 +73,9 @@ def test_bake_rechaza_reel():
 def test_destino_con_padre_inexistente(monkeypatch, tmp_path):
     with pytest.raises(core.BakerError, match="revisa el destino"):
         reel.reel(["x"], str(tmp_path / "no" / "existe"))
+
+
+def test_quita_subtitulos_quemados():
+    segmentos = [{"t": "00:01", "texto": "Hay presión en el gobierno"}]
+    pantalla = ["presion, el gobierno", "¡LA GEN Z ESTÁ IMPARABLE!"]
+    assert reel._sin_subtitulos(pantalla, segmentos) == ["¡LA GEN Z ESTÁ IMPARABLE!"]

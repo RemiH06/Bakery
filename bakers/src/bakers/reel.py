@@ -122,6 +122,18 @@ def _mensaje(meta: dict, duracion: float, segmentos: list[dict], tomas: list[tup
     return partes
 
 
+def _palabras(texto: str) -> set[str]:
+    plano = unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode().lower()
+    return set(re.findall(r"\w+", plano))
+
+
+def _sin_subtitulos(pantalla: list[str], segmentos: list[dict]) -> list[str]:
+    """Quita el texto en pantalla cuyas palabras ya están todas en la transcripción: son subtítulos quemados.
+    Pedírselo al modelo en el esquema no bastó (los 8 reels de 1.0h salieron igual)."""
+    dicho = _palabras(" ".join(s["texto"] for s in segmentos))
+    return [x for x in pantalla if not _palabras(x) <= dicho]
+
+
 def _cuenta(meta: dict) -> str:
     return meta.get("channel") or meta.get("uploader") or "local"
 
@@ -168,6 +180,7 @@ def _uno(c: httpx.Client, cfg: dict, fuente: str, destino: Path | None) -> dict:
         marca("fotogramas")
         r = core._llamar(c, cfg, _mensaje(meta, duracion, segmentos, tomas), Reel, uso)
         marca("vision")
+        r.texto_en_pantalla = _sin_subtitulos(r.texto_en_pantalla, segmentos)
         texto = _nota(r, meta, fuente, duracion, trabajo)
         (trabajo / "nota.md").write_text(texto, "utf-8")
         # La nota va al proyecto que la pidió; lo pesado (video, audio, fotogramas) se queda en CARPETA

@@ -63,6 +63,24 @@ models:
       -m models/Huihui-Qwen3.6-35B-A3B-abliterated-Q4_K.gguf -ngl 99 -ncmoe 99
     ttl: 600
 
+  # `abliterado` con su propio proyector de visión, para reels que `vision` se niega a describir.
+  "vision-abliterado":
+    name: "Huihui Qwen3.6 35B-A3B abliterated Q4_K + mmproj F16"
+    cmd: |
+      llama.cpp/llama-server.exe ${comunes}
+      -m models/Huihui-Qwen3.6-35B-A3B-abliterated-Q4_K.gguf -ngl 99 -ncmoe 99
+      --mmproj models/mmproj-Huihui-Qwen3.6-35B-A3B-abliterated-F16.gguf
+    ttl: 600
+
+  # Qwen con 24 capas de expertos en RAM y el resto en VRAM: ~11.2 GB, ~26 tok/s (1.0a). Para el A/B
+  # contra `bonsai`; no cabe junto a nada más.
+  "qwen-gpu":
+    name: "Qwen3.6 35B-A3B UD-Q4_K_XL, -ncmoe 24"
+    cmd: |
+      llama.cpp/llama-server.exe ${comunes}
+      -m models/Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf -ngl 99 -ncmoe 24
+    ttl: 600
+
   # Baker `reel`: transcribe y ve. No pasan por las marchas (el gateway se niega en `ninguna`).
   # large-v3-turbo q8_0, ~1.5 GB de VRAM. Las rutas imitan /v1/audio/transcriptions de OpenAI.
   "whisper":

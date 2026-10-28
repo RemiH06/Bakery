@@ -21,6 +21,7 @@ Viven en [`src/bakers/bakers.toml`](src/bakers/bakers.toml). Agregar uno con un 
 | Baker | Devuelve |
 |---|---|
 | `resumidor` | `resumen`, `puntos`, `alertas` |
+| `fichero` | ficha de especie desde varias fuentes: nombres, `descripcion`, `datos` y `ubicaciones_iteso` con fuente, `interacciones`, `contradicciones` (solo entre fuentes) y `faltantes` |
 | `clasificador` | cada línea no vacía en una de las categorías dadas, en lotes de 40: `conteo` y `por_categoria` (archivo → números de línea) |
 | `reel` | por cada reel o video corto: `tema`, `idea_central`, `recursos`, `citas`, `texto_en_pantalla`, `visual`, `afirmaciones` y la ruta de un borrador `nota.md` |
 
@@ -44,7 +45,7 @@ Los Bakers piden el modelo virtual `principal`; el perfil activo de llama-swap d
 | `media` | `qwen`, expertos en RAM | ~3.8 GB con el escritorio (3.35 propios) | hasta ~7.9 GB |
 | `ninguna` | nada: el Baker responde error y Claude delega en otro lado | 0 | lo que sea |
 
-`whisper`, `vision` y `abliterado` no son marchas, pero su VRAM cuenta como nuestra, no como de un juego. Baja al momento, sube solo tras un minuto cabiendo y descarga un modelo que ya no cabe solo cuando no está respondiendo. Probar sin abrir un juego: `vigilante.ps1 -Extra 3000 -Duracion 30` simula 3 GB ocupados.
+`whisper`, `vision`, `abliterado`, `vision-abliterado` y `qwen-gpu` no son marchas, pero su VRAM cuenta como nuestra, no como de un juego. Baja al momento, sube solo tras un minuto cabiendo y descarga un modelo que ya no cabe solo cuando no está respondiendo. Probar sin abrir un juego: `vigilante.ps1 -Extra 3000 -Duracion 30` simula 3 GB ocupados.
 
 ## Pixilate (una vez)
 

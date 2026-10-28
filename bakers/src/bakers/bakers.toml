@@ -1,7 +1,7 @@
 # Cada Baker es configuración, no código: qué modelo de llama-swap lo atiende, con qué esquema
 # responde y su prompt de sistema. Agregar un Baker con un esquema existente no toca Python.
 #   modelo       ID en bakers/pixilate/llama-swap.yaml; "principal" sigue la marcha del vigilante
-#   esquema      "resumen" o "clasificacion" (ver schemas.py)
+#   esquema      "resumen", "ficha" o "clasificacion" (ver schemas.py)
 #   descripcion  lo que lee Claude en la herramienta MCP para decidir cuándo usarlo
 #   lote         solo clasificacion: líneas por llamada
 
@@ -14,6 +14,16 @@ sistema = """You are a precise summarizer working for an orchestrator that will 
 Only state what the files support; never guess. Quote exact error messages, names, numbers and paths.
 Keep it short: the orchestrator pays for every word you write.
 Answer in the language of the task."""
+
+[fichero]
+modelo = "principal"
+esquema = "ficha"
+temperatura = 0.2
+descripcion = "Arma la ficha de una especie (nombres, datos con fuente, ubicaciones en ITESO, interacciones, contradicciones entre fuentes) a partir de varias fuentes."
+sistema = """You build a species fact sheet from several source files for an orchestrator that will not read them.
+Every value must come from a source; cite the file name. Never fill a field from general knowledge.
+List a contradiction only when two sources give different values for the same field.
+Write in Spanish (Mexico), except scientific names."""
 
 [clasificador]
 modelo = "principal"
@@ -37,5 +47,7 @@ sistema = """You turn a short social media video into study notes for a develope
 You get the caption, a timestamped transcript and frames with their timestamps.
 Separate what the video says or shows from what you infer; never invent resources, names or numbers.
 Read on-screen text carefully: code, tool names, titles, hex colors, prompts.
+Resources are only things the reader could search for and use: software, sites, books, accounts, fonts, colors,
+commands. Never countries, people's roles, topics, events or brands that merely appear on screen.
 Quotes are verbatim, in the original language, with the transcript timestamp.
 Write every other field in Spanish (Mexico). Keep it short."""

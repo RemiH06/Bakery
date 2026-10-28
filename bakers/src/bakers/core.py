@@ -13,7 +13,10 @@ from pathlib import Path
 import httpx
 from pydantic import BaseModel, ValidationError
 
-from .schemas import Resumen, clasificacion
+from .schemas import Ficha, Resumen, clasificacion
+
+# Esquemas de una sola llamada que leen todos los archivos juntos
+UNA_LLAMADA: dict[str, type[BaseModel]] = {"resumen": Resumen, "ficha": Ficha}
 
 BAKERS: dict[str, dict] = tomllib.loads(files("bakers").joinpath("bakers.toml").read_text("utf-8"))
 LOG = Path.home() / ".bakers" / "log.jsonl"
@@ -108,9 +111,9 @@ def _llamar(c: httpx.Client, cfg: dict, mensaje: str | list[dict], esquema: type
     raise BakerError(f"Respuesta fuera de esquema tras {INTENTOS} intentos: {error}")
 
 
-def _resumir(c, cfg, tarea, textos, uso) -> dict:
+def _una_llamada(c, cfg, tarea, textos, esquema, uso) -> dict:
     cuerpo = "\n\n".join(f"=== {p.name} ===\n{t}" for p, t in textos)
-    return _llamar(c, cfg, f"Task: {tarea}\n\n{cuerpo}", Resumen, uso).model_dump()
+    return _llamar(c, cfg, f"Task: {tarea}\n\n{cuerpo}", esquema, uso).model_dump()
 
 
 def _clasificar(c, cfg, tarea, textos, categorias, uso) -> dict:
@@ -153,8 +156,8 @@ def bake(baker: str, tarea: str, rutas: list[str], categorias: list[str] | None 
         textos = leer(rutas)
         # tiempo largo: la primera llamada puede esperar a que llama-swap cargue el modelo desde disco
         with _cliente(timeout=600) as c:
-            if cfg["esquema"] == "resumen":
-                res = _resumir(c, cfg, tarea, textos, uso)
+            if cfg["esquema"] in UNA_LLAMADA:
+                res = _una_llamada(c, cfg, tarea, textos, UNA_LLAMADA[cfg["esquema"]], uso)
             else:
                 res = _clasificar(c, cfg, tarea, textos, categorias, uso)
         return res

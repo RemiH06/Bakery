@@ -16,7 +16,7 @@ $marchas = @(
     @{ perfil = 'ninguna'; modelo = $null; vram = 0; ram = 0 }
 )
 # Modelos fuera de las marchas (se piden por nombre): su VRAM también es nuestra, no de un juego
-$fuera = @{ abliterado = 3350; whisper = 1500; vision = 4700 }
+$fuera = @{ abliterado = 3350; whisper = 1500; vision = 4700; 'vision-abliterado' = 4700; 'qwen-gpu' = 11200 }
 $margen = 1024     # MiB de VRAM libres para que lo demás (el juego) no se quede corto
 $margenRam = 2048  # lo mismo en RAM
 $subirTras = 60    # segundos cabiendo sin interrupción antes de subir a esa marcha
