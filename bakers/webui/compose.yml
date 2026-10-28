@@ -1,0 +1,33 @@
+# Open WebUI en el WSL de Pixilate: chat a mano con los modelos de llama-swap (1.0k).
+# Solo loopback; lo publica `tailscale serve --https=8091` al tailnet. Historial, hojas de contexto
+# y conocimiento viven en el volumen `open-webui`, fuera del repo.
+#
+# La llave y la URL de llama-swap van en ${HOME}/.config/bakers-webui.env (nunca en el repo):
+#   OPENAI_API_BASE_URL=https://<pixilate>.<tailnet>.ts.net:8090/v1
+#   OPENAI_API_KEY=<contenido de ~\bakers\api-key.txt>
+#   WEBUI_SECRET_KEY=<openssl rand -hex 32>
+
+services:
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:v0.12.4
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8091:8080"
+    env_file: ${HOME}/.config/bakers-webui.env
+    environment:
+      ENABLE_OLLAMA_API: "false"
+      # Con -np 1 cada tarea de fondo hace fila contra los Bakers: solo queda el título del chat.
+      ENABLE_AUTOCOMPLETE_GENERATION: "false"
+      ENABLE_TAGS_GENERATION: "false"
+      ENABLE_FOLLOW_UP_GENERATION: "false"
+      ENABLE_RETRIEVAL_QUERY_GENERATION: "false"
+      ENABLE_SIGNUP: "false"  # la cuenta de Remi ya existe; otra se crea desde Admin
+      DEFAULT_USER_ROLE: "pending"
+      ANONYMIZED_TELEMETRY: "false"
+      DO_NOT_TRACK: "true"
+      SCARF_NO_ANALYTICS: "true"
+    volumes:
+      - open-webui:/app/backend/data
+
+volumes:
+  open-webui:
