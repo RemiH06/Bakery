@@ -38,17 +38,17 @@ El log trae `pasos` (segundos de descarga, whisper, fotogramas y visión). En 8 
 Para lotes grandes (cientos de reels), bajar y analizar van separados: Instagram mandó un aviso de actividad automatizada tras ~11 descargas seguidas (2026-10-27). El estado vive en `~/.bakers/cola/cola.json` (fuera del repo) y los errores en `errores.jsonl`, junto a él.
 
 ```powershell
-uv run baker cola agregar links.txt                # uno por renglón; quita el ?stkn= y guarda "Etiqueta: " como etiqueta
+uv run baker cola agregar links.txt                # uno por renglón; quita el ?stkn=, guarda "Etiqueta: " y el último "# Sección"
 uv run baker cola bajar                            # solo descarga; corre días seguidos
 uv run baker cola estado                           # bajados, pendientes, fallidos y próximo intento
-uv run baker cola analizar -d <carpeta de notas>   # `reel` sobre lo ya bajado, de 5 en 5
+uv run baker cola analizar -d <carpeta de notas> [-m vision-abliterado]   # `reel` sobre lo ya bajado, de 5 en 5
 ```
 
 `agregar` ignora repetidos y lo que ya está en `~/.bakers/reels/`. `bajar` descarga uno a la vez con 1 a 4 min al azar entre descargas, de 9:00 a 22:59 y hasta 30 por día (`--tope`). Ante un error de Instagram (400, 401, 403, 429, login, checkpoint) para entre 2 y 3 h al azar y luego prueba primero un enlace que no haya fallado: si baja, la cuenta ya está libre. yt-dlp da el mismo mensaje para un post privado que para el límite de la cuenta, así que un enlace que falla así 3 veces queda como fallido. Un enlace borrado, demasiado largo o de un sitio que yt-dlp no entiende se marca y sigue; sin red (al despertar de la suspensión) espera 5 min sin contar intento. Todas las esperas se guardan como hora de reloj: matar el proceso o apagar la laptop no pierde nada, y al volver respeta la pausa que quedaba. Un candado impide dos `bajar` a la vez.
 
 **Por qué 30 al día:** el aviso llegó tras ~11 descargas en pocos minutos (2 s entre peticiones). Con 1 a 4 min entre una y otra, 30 son ~75 min de actividad repartidos en un día de 14 h, cerca de lo que alguien abre a mano, y 200 reels tardan unos 7 días. Si en una semana no hay otro aviso, se puede subir a 50; si llega, bajar a 15.
 
-`analizar` no descarga nunca: con un enlace de Instagram cuyo video falta, lo regresa a pendiente. Corre solo con la marcha `alta`; con otra espera 5 min y vuelve a mirar, porque con un juego abierto el grupo `reel` (~6 GB) no cabe. Un reel que falla dos veces el análisis queda como fallido. Ojo: los enlaces que no son de Instagram (TikTok, Facebook) sí se vuelven a bajar al analizar, porque `_obtener` solo reconoce como ya bajados los códigos de Instagram.
+`analizar` no descarga nunca: con un enlace de Instagram cuyo video falta, lo regresa a pendiente. Corre solo con la marcha `alta`; con otra espera 5 min y vuelve a mirar, porque con un juego abierto el grupo `reel` (~6 GB) no cabe. Un reel que falla dos veces el análisis queda como fallido. `analizar` termina cuando no queda nada bajado, así que se vuelve a correr conforme `bajar` avanza (de noche, por ejemplo); `-m` cambia el modelo de `bakers.toml` solo para esa corrida. Ojo: los enlaces que no son de Instagram (TikTok, Facebook) sí se vuelven a bajar al analizar, porque `_obtener` solo reconoce como ya bajados los códigos de Instagram.
 
 **Días seguidos en Aerilate.** Tiene que correr ahí porque ahí están las cookies de Firefox. Con [`remote/job.ps1`](../remote/job.ps1) (tarea programada S4U: sigue con la terminal o VS Code cerrados y vuelve a arrancar con Windows), desde `bakers/`:
 
