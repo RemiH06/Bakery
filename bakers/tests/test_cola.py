@@ -97,6 +97,21 @@ def test_bloqueo_pausa_y_enlace_roto_sigue(monkeypatch, reloj, tmp_path):
     assert len(errores) == 2 and '"tipo": "bloqueo"' in errores[0] and '"tipo": "enlace"' in errores[1]
 
 
+def test_json_vacio_es_bloqueo_y_enlace_roto_espera(monkeypatch, reloj, tmp_path):
+    # 2026-10-28: Instagram devolvió páginas vacías y la cola marcó 283 enlaces seguidos sin pausa
+    _, dormidas = reloj
+    llamadas = _descargas(monkeypatch, tmp_path, {
+        "AAA": ["yt-dlp falló (1): ERROR: [Instagram] AAA: This content isn't available"],
+        "BBB": ['yt-dlp falló (1): ERROR: [Instagram] BBB: Failed to parse JSON (caused by '
+                'JSONDecodeError("Expecting value in \'\': line 1 column 1 (char 0)"))']})
+    cola.agregar(_enlaces(tmp_path, *(f"https://www.instagram.com/reel/{c}/" for c in ("AAA", "BBB"))))
+    res = cola.bajar()
+    assert res["conteo"] == {"bajado": 1, "fallido": 1} and "AAA" in res["fallidos"]
+    assert llamadas == ["AAA", "BBB", "BBB"]
+    assert 60 <= dormidas[0] <= 240                  # tras el enlace roto
+    assert 2 * 3600 <= dormidas[1] <= 3 * 3600       # tras el JSON vacío
+
+
 def test_tres_bloqueos_marcan_el_enlace(monkeypatch, reloj, tmp_path):
     _descargas(monkeypatch, tmp_path, {"AAA": ["login required"] * 3})
     cola.agregar(_enlaces(tmp_path, "https://www.instagram.com/reel/AAA/"))

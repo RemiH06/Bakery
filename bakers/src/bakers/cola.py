@@ -30,7 +30,9 @@ LOTE = 5                  # reels por llamada a `reel.reel` en `analizar`
 
 # yt-dlp no distingue "rate-limit" de "login required" en un post privado: por eso los STRIKES
 _BLOQUEO = ("http error 400", "http error 401", "http error 403", "http error 429", "rate-limit", "rate limit",
-            "login", "checkpoint", "challenge", "please wait a few minutes")
+            "login", "checkpoint", "challenge", "please wait a few minutes",
+            # Instagram contesta una página vacía o de login en vez de JSON (2026-10-28: 283 seguidos)
+            "failed to parse json", "expecting value")
 _RED = ("getaddrinfo", "timed out", "errno 11001", "connection reset", "connection refused",
         "connection aborted", "network is unreachable", "no route to host")
 
@@ -200,6 +202,8 @@ def bajar(tope: int = TOPE) -> dict:
                     if tipo == "bloqueo":
                         item["intentos"] += 1
                         _pausa(e, random.uniform(*BLOQUEO), "Instagram")
+                    else:  # un enlace roto también fue una petición a Instagram
+                        _pausa(e, random.uniform(*ENTRE), "entre descargas")
                     if tipo == "enlace" or item["intentos"] >= STRIKES:
                         item["estado"] = "fallido"
 
