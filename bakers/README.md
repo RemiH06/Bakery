@@ -134,6 +134,8 @@ Desde Claude Code: herramientas `bake(baker, tarea, rutas, categorias)`, `reel(f
 
 Qwen Code (Apache 2.0, `npm install -g @qwen-code/qwen-code`) habla con llama-swap como proveedor `openai`. En `~/.qwen/settings.json`: una entrada por modelo en `modelProviders.openai` con `baseUrl` = `BAKERS_URL` + `/v1`, `envKey` = `BAKERS_API_KEY` y `contextWindowSize` igual al `-c` del modelo (`abliterado` 131072, `bonsai-abliterado` 65536, `qwen` 32768). Apagar `privacy.usageStatisticsEnabled` (manda estadísticas a Alibaba por defecto), `telemetry.enabled`, `ui.enableFollowupSuggestions` y `ui.enableSpeculation` (con `-np 1`, cada llamada extra hace fila). Su primera llamada pesa ~14k tokens; después la caché de prompts en RAM de llama-server cubre lo repetido, aunque un Baker se meta entre turnos.
 
+Skills: solo un subconjunto de código, como junctions de `~/.qwen/skills/<nombre>` a `~/.claude/skills/<nombre>` (`New-Item -ItemType Junction`, sin administrador), para no mantener otra copia. Cada skill listada cuesta su descripción en cada llamada (~150 a 250 tokens) y el cuerpo solo al usarla; las que hablan de herramientas de Claude Code (subagentes, `bake`, artefactos) confunden al modelo. Lo que siempre aplica va en `~/.qwen/QWEN.md` (o `AGENTS.md` por proyecto), que entra completo en cada llamada: corto.
+
 ## Seguridad
 
 - llama-swap y cada llama-server escuchan solo en `127.0.0.1`; afuera solo llega `tailscale serve`, que exige estar en el tailnet. La ACL deja a los invitados solo en el 443.
