@@ -35,8 +35,10 @@ Set-Location '$Dir'
         $action = New-ScheduledTaskAction -Execute powershell.exe -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$root\$Name.ps1`""
         # En sesiones SSH USERDOMAIN vale WORKGROUP: la cuenta local se nombra con COMPUTERNAME
         $principal = New-ScheduledTaskPrincipal -UserId "$env:COMPUTERNAME\$env:USERNAME" -LogonType S4U
-        # Sin límite de tiempo (el default corta a las 72 h) y prioridad normal (el default es baja)
-        $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -Priority 4
+        # Sin límite de tiempo (el default corta a las 72 h) y prioridad normal (el default es baja).
+        # En una laptop (Aerilate) el default tampoco arranca con batería y mata la tarea al desconectar el cargador
+        $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -Priority 4 `
+            -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
         $trigger = if ($AtStartup) { @{ Trigger = New-ScheduledTaskTrigger -AtStartup } } else { @{} }
         Register-ScheduledTask -TaskName $task -Action $action -Principal $principal -Settings $settings @trigger -Force | Out-Null
         Start-ScheduledTask $task

@@ -33,6 +33,33 @@ La nota sigue el formato de la skill `inspiracion`, con dos huecos a propósito:
 
 El log trae `pasos` (segundos de descarga, whisper, fotogramas y visión). En 8 reels de 14 s a 3 min (2026-10-27): 80 a 120 s por reel, de los que la visión se lleva 73 a 110 s; lo demás suma ~10 s. Los segmentos de whisper con `avg_logprob` menor a −1 se descartan (sin VAD, whisper.cpp inventa letra sobre la música y eso metió a la visión en un bucle) y los repetidos seguidos se colapsan.
 
+### Cola de descargas
+
+Para lotes grandes (cientos de reels), bajar y analizar van separados: Instagram mandó un aviso de actividad automatizada tras ~11 descargas seguidas (2026-10-27). El estado vive en `~/.bakers/cola/cola.json` (fuera del repo) y los errores en `errores.jsonl`, junto a él.
+
+```powershell
+uv run baker cola agregar links.txt                # uno por renglón; quita el ?stkn= y guarda "Etiqueta: " como etiqueta
+uv run baker cola bajar                            # solo descarga; corre días seguidos
+uv run baker cola estado                           # bajados, pendientes, fallidos y próximo intento
+uv run baker cola analizar -d <carpeta de notas>   # `reel` sobre lo ya bajado, de 5 en 5
+```
+
+`agregar` ignora repetidos y lo que ya está en `~/.bakers/reels/`. `bajar` descarga uno a la vez con 1 a 4 min al azar entre descargas, de 9:00 a 22:59 y hasta 30 por día (`--tope`). Ante un error de Instagram (400, 401, 403, 429, login, checkpoint) para entre 2 y 3 h al azar y luego prueba primero un enlace que no haya fallado: si baja, la cuenta ya está libre. yt-dlp da el mismo mensaje para un post privado que para el límite de la cuenta, así que un enlace que falla así 3 veces queda como fallido. Un enlace borrado, demasiado largo o de un sitio que yt-dlp no entiende se marca y sigue; sin red (al despertar de la suspensión) espera 5 min sin contar intento. Todas las esperas se guardan como hora de reloj: matar el proceso o apagar la laptop no pierde nada, y al volver respeta la pausa que quedaba. Un candado impide dos `bajar` a la vez.
+
+**Por qué 30 al día:** el aviso llegó tras ~11 descargas en pocos minutos (2 s entre peticiones). Con 1 a 4 min entre una y otra, 30 son ~75 min de actividad repartidos en un día de 14 h, cerca de lo que alguien abre a mano, y 200 reels tardan unos 7 días. Si en una semana no hay otro aviso, se puede subir a 50; si llega, bajar a 15.
+
+`analizar` no descarga nunca: con un enlace de Instagram cuyo video falta, lo regresa a pendiente. Corre solo con la marcha `alta`; con otra espera 5 min y vuelve a mirar, porque con un juego abierto el grupo `reel` (~6 GB) no cabe. Un reel que falla dos veces el análisis queda como fallido. Ojo: los enlaces que no son de Instagram (TikTok, Facebook) sí se vuelven a bajar al analizar, porque `_obtener` solo reconoce como ya bajados los códigos de Instagram.
+
+**Días seguidos en Aerilate.** Tiene que correr ahí porque ahí están las cookies de Firefox. Con [`remote/job.ps1`](../remote/job.ps1) (tarea programada S4U: sigue con la terminal o VS Code cerrados y vuelve a arrancar con Windows), desde `bakers/`:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File ..\remote\job.ps1 start cola . "uv run baker cola bajar" -AtStartup
+powershell -NoProfile -ExecutionPolicy Bypass -File ..\remote\job.ps1 log cola
+powershell -NoProfile -ExecutionPolicy Bypass -File ..\remote\job.ps1 stop cola
+```
+
+Las tareas pueden arrancar y seguir con batería. Al suspender la laptop el proceso se congela, no muere; al despertar, la espera sigue por reloj, así que si la pausa ya venció descarga enseguida, y si la red tarda en volver espera los 5 min de "sin red". No hay `WakeToRun`: la laptop no se despierta sola para bajar. Si Firefox pierde la sesión de Instagram, todo cuenta como bloqueo; `cola estado` lo muestra en `motivo` y `fallidos`.
+
 `whisper` y `vision` forman el grupo `reel` de llama-swap: se cargan juntos (~6 GB) y sacan a `bonsai` mientras dure el lote. No pasan por las marchas; con la marcha `ninguna` el gateway se niega antes de bajar nada.
 
 ## Marchas

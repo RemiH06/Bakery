@@ -40,6 +40,20 @@ def _mmss(s: float) -> str:
     return f"{int(s) // 60:02d}:{int(s) % 60:02d}"
 
 
+def codigo(fuente: str) -> str | None:
+    """Código del reel o post de Instagram en el enlace; es también el nombre de su carpeta en CARPETA."""
+    m = re.search(r"instagram\.com/(?:[\w.]+/)?(?:reels?|p)/([\w-]+)", fuente)
+    return m[1] if m else None
+
+
+def bajado(clave: str | None) -> Path | None:
+    """Video completo ya en CARPETA. Una descarga cortada deja `video.mp4.part` junto al info.json: no cuenta."""
+    if not clave or not (CARPETA / clave / "video.info.json").is_file():
+        return None
+    return next((v for v in (CARPETA / clave).glob("video.*")
+                 if v.suffix not in (".json", ".part", ".ytdl") and ".part" not in v.name), None)
+
+
 def _obtener(fuente: str, navegador: str) -> tuple[Path, dict]:
     """Ruta local del video y sus metadatos (vacíos si es un archivo local)."""
     local = Path(fuente).expanduser()
@@ -48,10 +62,9 @@ def _obtener(fuente: str, navegador: str) -> tuple[Path, dict]:
     if not fuente.startswith(("http://", "https://")):
         raise BakerError(f"Ni archivo ni enlace: {fuente}")
     # Ya bajado: reprocesar no vuelve a tocar Instagram (detecta actividad automatizada en la cuenta)
-    clave = re.search(r"/(?:reels?|p)/([\w-]+)", fuente)
-    previos = [v for v in (CARPETA / clave[1]).glob("video.*") if v.suffix != ".json"] if clave else []
-    if previos and (previos[0].parent / "video.info.json").is_file():
-        return previos[0], _metadatos(previos[0])
+    previo = bajado(codigo(fuente))
+    if previo:
+        return previo, _metadatos(previo)
     CARPETA.mkdir(parents=True, exist_ok=True)
     # Instagram pide sesión: las cookies se leen del navegador al momento, nunca se copian a disco
     salida = _correr("yt-dlp", "--cookies-from-browser", navegador, "--sleep-requests", "2",
