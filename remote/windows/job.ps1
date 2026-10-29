@@ -40,7 +40,7 @@ Set-Location '$Dir'
         $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -Priority 4 `
             -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
         $trigger = if ($AtStartup) { @{ Trigger = New-ScheduledTaskTrigger -AtStartup } } else { @{} }
-        Register-ScheduledTask -TaskName $task -Action $action -Principal $principal -Settings $settings @trigger -Force | Out-Null
+        Register-ScheduledTask -TaskName $task -Action $action -Principal $principal -Settings $settings @trigger -Force -ErrorAction Stop | Out-Null  # sin administrador da "Acceso denegado"; sin -ErrorAction seguía y arrancaba la tarea vieja
         Start-ScheduledTask $task
         "Lanzado $task. Log: $log"
     }
