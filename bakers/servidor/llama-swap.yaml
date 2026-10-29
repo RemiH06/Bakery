@@ -107,21 +107,15 @@ models:
       -m models/Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf -ngl 99 -ncmoe 24
     ttl: 600
 
-  # A/B de 1.0q, fuera de las marchas. Gemma 4 26B-A4B en el QAT Q4_0 oficial de Google (Apache 2.0,
-  # 14.4 GB): no cabe en VRAM, va con los expertos en RAM como `qwen`. Contra `bonsai-abliterado` en chat.
+  # Chat en español y hojas de compañía, fuera de las marchas: se pide por nombre. Gemma 4 26B-A4B en el
+  # QAT Q4_0 oficial de Google (Apache 2.0, 14.4 GB): no cabe en VRAM, va con los expertos en RAM como `qwen`.
+  # 16 a 19 tok/s, carga en 8 s. Ganó en calidad el A/B de 1.0q a `bonsai-abliterado` (que se ciclaba en
+  # compañía) y a Rocinante X 12B (descartado).
   "gemma":
     name: "Gemma 4 26B-A4B QAT Q4_0"
     cmd: |
       ${llama} ${comunes}
       -m models/gemma-4-26B_q4_0-it.gguf -ngl 99 -ncmoe 99 -b 2048 -ub 2048
-    ttl: 600
-
-  # Rocinante X 12B v1b (TheDrummer, base Mistral Nemo, Q4_K_M 7.5 GB): entero en VRAM. Para hojas de compañía.
-  "rocinante":
-    name: "Rocinante X 12B v1b Q4_K_M"
-    cmd: |
-      ${llama} ${comunes}
-      -m models/Rocinante-X-12B-v1b-Q4_K_M.gguf -ngl 99
     ttl: 600
 
   # Baker `reel`: transcribe y ve. No pasan por las marchas (el gateway se niega en `ninguna`).
