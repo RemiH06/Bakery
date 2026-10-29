@@ -35,7 +35,9 @@ Llave $key
 Llave $keyPi
 
 # Las llaves entran por variable de entorno del proceso, no por argumento (los argumentos se ven en el administrador de tareas)
-$cmd = "`$env:BAKERS_API_KEY = Get-Content '$key' -Raw; `$env:BAKERS_API_KEY_PI = Get-Content '$keyPi' -Raw; .\llama-swap\llama-swap.exe -config '$config' -listen 127.0.0.1:8090 -watch-config"
+# Prioridad baja, que heredan llama-swap y cada llama-server: con los expertos de Qwen en CPU, generar la
+# satura y un juego bajaba de 120 a 40 FPS (1.0n). Sin juego no cuesta nada: la CPU libre se usa igual.
+$cmd = "(Get-Process -Id `$PID).PriorityClass = 'BelowNormal'; `$env:BAKERS_API_KEY = Get-Content '$key' -Raw; `$env:BAKERS_API_KEY_PI = Get-Content '$keyPi' -Raw; .\llama-swap\llama-swap.exe -config '$config' -listen 127.0.0.1:8090 -watch-config"
 # Reinicio limpio: `job.ps1 stop` no mata a los hijos y un llama-server huérfano se queda con la VRAM
 if (Get-ScheduledTask 'bakery-bakers' -EA SilentlyContinue) {
     & $job stop bakers

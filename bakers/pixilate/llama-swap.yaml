@@ -82,11 +82,12 @@ models:
     ttl: 600
 
   # `abliterado` con su propio proyector de visión, para reels que `vision` se niega a describir.
+  # --no-op-offload como en `vision`: 8 fotogramas se leen en ~37 s en vez de ~68 (1.0n).
   "vision-abliterado":
     name: "Huihui Qwen3.6 35B-A3B abliterated Q4_K + mmproj F16"
     cmd: |
       llama.cpp/llama-server.exe ${comunes}
-      -m models/Huihui-Qwen3.6-35B-A3B-abliterated-Q4_K.gguf -ngl 99 -ncmoe 99
+      -m models/Huihui-Qwen3.6-35B-A3B-abliterated-Q4_K.gguf -ngl 99 -ncmoe 99 --no-op-offload
       --mmproj models/mmproj-Huihui-Qwen3.6-35B-A3B-abliterated-F16.gguf
     ttl: 600
 
@@ -111,11 +112,15 @@ models:
     ttl: 600
 
   # El mismo Qwen de `qwen` más su proyector de visión (0.9 GB): ~4.7 GB de VRAM.
+  # Cada imagen se decodifica en su propio lote y llama.cpp copia los expertos de RAM a la GPU en cada
+  # lote de 32 tokens o más: con --no-op-offload se calculan en CPU y 8 fotogramas se leen en ~34 s
+  # en vez de ~63, con la misma lectura. -ub 2048 no ayuda aquí (1.0n, 2026-10-28). En `qwen` no
+  # conviene: el texto entra en lotes grandes, donde la copia sí paga.
   "vision":
     name: "Qwen3.6 35B-A3B UD-Q4_K_XL + mmproj F16"
     cmd: |
       llama.cpp/llama-server.exe ${comunes}
-      -m models/Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf -ngl 99 -ncmoe 99
+      -m models/Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf -ngl 99 -ncmoe 99 --no-op-offload
       --mmproj models/mmproj-Qwen3.6-35B-A3B-F16.gguf
     ttl: 600
 
