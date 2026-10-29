@@ -58,7 +58,8 @@ def _obtener(fuente: str, navegador: str) -> tuple[Path, dict]:
     """Ruta local del video y sus metadatos (vacíos si es un archivo local)."""
     local = Path(fuente).expanduser()
     if local.is_file():
-        return local, {}
+        # Un video que ya bajó `cola bajar` (de cualquier sitio) trae sus metadatos al lado
+        return local, _metadatos(local) if (local.parent / "video.info.json").is_file() else {}
     if not fuente.startswith(("http://", "https://")):
         raise BakerError(f"Ni archivo ni enlace: {fuente}")
     # Ya bajado: reprocesar no vuelve a tocar Instagram (detecta actividad automatizada en la cuenta)

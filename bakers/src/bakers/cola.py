@@ -232,17 +232,22 @@ def estado() -> dict:
 
 def analizar(destino: str, lote: int = LOTE, modelo: str | None = None) -> dict:
     """Corre `reel` sobre lo ya bajado, en lotes, solo con la marcha `alta` (con un juego abierto la
-    visión no cabe junto a él). Nunca descarga de Instagram: si falta el video, el enlace vuelve a pendiente."""
+    visión no cabe junto a él). Nunca descarga, de ningún sitio: le pasa a `reel` el video que dejó `bajar`;
+    si ya no está, el enlace vuelve a pendiente."""
     while True:
         e = _leer()
-        listos = []
+        listos, videos = [], {}
         for k, i in e["items"].items():
             if i["estado"] != "bajado":
                 continue
-            if reel.codigo(i["url"]) and not reel.bajado(k):  # se borró el material: que lo baje `bajar`
+            video = Path(i["video"]) if i.get("video") else None
+            if not (video and video.is_file()):
+                video = reel.bajado(reel.codigo(i["url"]))
+            if not video:  # se borró el material: que lo baje `bajar`
                 _cambiar(lambda e, k=k: e["items"][k].update(estado="pendiente"))
                 continue
             listos.append(k)
+            videos[k] = str(video)
         if not listos:
             return estado()
         marcha = core.estado()["marcha"]
@@ -251,7 +256,7 @@ def analizar(destino: str, lote: int = LOTE, modelo: str | None = None) -> dict:
             time.sleep(300)
             continue
         claves = listos[:lote]
-        res = reel.reel([e["items"][k]["url"] for k in claves], destino, modelo)
+        res = reel.reel([videos[k] for k in claves], destino, modelo)
 
         def anotar(e: dict) -> None:
             for k, r in zip(claves, res):

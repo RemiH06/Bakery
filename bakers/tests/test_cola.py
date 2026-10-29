@@ -32,7 +32,7 @@ def _descargas(monkeypatch, tmp_path, fallos: dict):
     llamadas = []
 
     def obtener(url, navegador):
-        clave = reel.codigo(url)
+        clave = reel.codigo(url) or url.rstrip("/").rsplit("/", 1)[-1]  # fuera de Instagram, el id de yt-dlp
         llamadas.append(clave)
         if fallos.get(clave):
             raise BakerError(fallos[clave].pop(0))
@@ -173,12 +173,35 @@ def test_analizar_espera_marcha_y_no_baja(monkeypatch, reloj, tmp_path):
     def reel_falso(fuentes, destino, modelo):
         assert modelo == "vision-abliterado"
         lotes.append(fuentes)
-        return [{"fuente": f, "error": "bucle"} if "BBB" in f else {"fuente": f, "nota": f"{destino}/{f[-4:-1]}.md"}
+        return [{"fuente": f, "error": "bucle"} if "BBB" in f else {"fuente": f, "nota": f"{destino}/x.md"}
                 for f in fuentes]
 
     monkeypatch.setattr(reel, "reel", reel_falso)
     monkeypatch.setattr(reel, "_obtener", lambda *a: pytest.fail("analizar no debe descargar"))
     res = cola.analizar(str(tmp_path / "notas"), lote=2, modelo="vision-abliterado")
     assert esperas == [300]
-    assert lotes[0] == ["https://www.instagram.com/reel/AAA/", "https://www.instagram.com/reel/BBB/"]
+    assert lotes[0] == [str(tmp_path / "reels" / c / "video.mp4") for c in ("AAA", "BBB")]  # el video, no el enlace
     assert res["conteo"] == {"analizado": 2, "fallido": 1}  # BBB falló dos veces
+
+
+def test_otras_fuentes_se_bajan_una_vez(monkeypatch, reloj, tmp_path):
+    """Un enlace que no es de Instagram lo baja `bajar` y `analizar` usa ese video sin volver a yt-dlp."""
+    llamadas = _descargas(monkeypatch, tmp_path, {})
+    cola.agregar(_enlaces(tmp_path, "https://www.tiktok.com/@alguien/video/123/"))
+    assert cola.bajar()["conteo"] == {"bajado": 1}
+    monkeypatch.setattr(core, "estado", lambda: {"marcha": "alta"})
+    lotes = []
+    monkeypatch.setattr(reel, "reel", lambda fuentes, destino, modelo: lotes.append(fuentes) or
+                        [{"fuente": f, "nota": "n.md"} for f in fuentes])
+    monkeypatch.setattr(reel, "_obtener", lambda *a: pytest.fail("analizar no debe descargar"))
+    assert cola.analizar(str(tmp_path / "notas"))["conteo"] == {"analizado": 1}
+    assert llamadas == ["123"] and lotes == [[str(tmp_path / "reels" / "123" / "video.mp4")]]
+
+
+def test_video_local_lee_sus_metadatos(tmp_path):
+    carpeta = tmp_path / "123"
+    carpeta.mkdir()
+    (carpeta / "video.info.json").write_text('{"uploader": "alguien", "webpage_url": "https://www.tiktok.com/x"}')
+    (carpeta / "video.mp4").write_bytes(b"x")
+    video, meta = reel._obtener(str(carpeta / "video.mp4"), "firefox")
+    assert video == carpeta / "video.mp4" and meta["webpage_url"] == "https://www.tiktok.com/x"
