@@ -142,3 +142,20 @@ def test_tope_de_salida_corta_el_bucle_sin_reintentar(monkeypatch, tmp_path):
         core.bake("resumidor", "t", [str(archivo)])
     assert len(recibidos) == 1
     assert recibidos[0]["max_tokens"] == core.MAX_SALIDA
+
+
+def test_resumen_log_agrupa_y_no_cuenta_fallos_en_tiempos(monkeypatch, tmp_path):
+    log = tmp_path / "log.jsonl"
+    filas = [("2026-10-27", "chat", "models/a.gguf", True, 10.0, 100, 1),
+             ("2026-10-28", "chat", "models/a.gguf", True, 30.0, 300, 2),
+             ("2026-10-28", "chat", "models/a.gguf", False, 999.0, 0, 2),
+             ("2026-10-28", "reel", None, False, 1.0, 0, 0)]
+    log.write_text("".join(json.dumps({"ts": ts, "baker": b, "modelo": m, "ok": ok, "segundos": s,
+                                       "salida": sal, "intentos": i}) + "\n"
+                           for ts, b, m, ok, s, sal, i in filas), "utf-8")
+    monkeypatch.setattr(core, "LOG", log)
+    chat, reel = core.resumen_log()
+    assert chat == {"baker": "chat", "modelo": "a.gguf", "llamadas": 3, "ok_%": 67, "reintentos": 2,
+                    "seg_mediana": 30.0, "seg_p90": 30.0, "salida_tok_s": 10.0}
+    assert reel["modelo"] == "sin respuesta" and reel["seg_mediana"] is None
+    assert [f["llamadas"] for f in core.resumen_log("2026-10-28")] == [2, 1]

@@ -196,3 +196,25 @@ def estado() -> dict:
         "bakers": {n: pins.get(cfg["modelo"], cfg["modelo"]) or None for n, cfg in BAKERS.items()},
         "cargados": [m["model"] for m in corriendo.json()["running"]],
     }
+
+
+def resumen_log(desde: str | None = None) -> list[dict]:
+    """Uso real por Baker y modelo, para comparar modelos sin montar Langfuse. `desde`: fecha ISO."""
+    grupos: dict[tuple, list[dict]] = defaultdict(list)
+    for linea in LOG.read_text("utf-8").splitlines() if LOG.exists() else []:
+        r = json.loads(linea)
+        if not desde or r["ts"] >= desde:
+            grupos[(r["baker"], (r["modelo"] or "sin respuesta").rsplit("/", 1)[-1])].append(r)
+    filas = []
+    for (baker, modelo), rs in sorted(grupos.items()):
+        seg = sorted(r["segundos"] for r in rs if r["ok"])
+        filas.append({
+            "baker": baker, "modelo": modelo, "llamadas": len(rs),
+            "ok_%": round(100 * len(seg) / len(rs)),
+            "reintentos": sum(r["intentos"] > 1 for r in rs),
+            "seg_mediana": seg[len(seg) // 2] if seg else None,
+            "seg_p90": seg[int(len(seg) * 0.9)] if seg else None,
+            # Incluye leer el prompt y los pasos de `reel`: sirve para comparar, no es la velocidad del modelo
+            "salida_tok_s": round(sum(r["salida"] for r in rs if r["ok"]) / sum(seg), 1) if seg else None,
+        })
+    return filas

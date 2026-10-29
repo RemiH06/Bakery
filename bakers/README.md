@@ -117,12 +117,15 @@ claude mcp add --scope user bakers -- uv run --project "<ruta a 29.Bakery\bakers
 
 ```powershell
 uv run baker status
+uv run baker log
 uv run baker run resumidor -f build.log -t "por qué falla el build"
 uv run baker run clasificador -f issues.txt -t "tipo de issue" -c bug -c idea -c duda
 uv run baker reel https://www.instagram.com/reel/<id>/ video.mp4
 ```
 
 Desde Claude Code: herramientas `bake(baker, tarea, rutas, categorias)`, `reel(fuentes)` y `bakers_status()`. Cada llamada deja una línea en `~/.bakers/log.jsonl` (Baker, modelo que respondió, tokens que leyó y escribió el Baker, `claude_chars` = caracteres del pedido más la respuesta que paga Claude, intentos, segundos, error). Referencia medida: 1.7k tokens en 21 s con carga del modelo incluida; 30k tokens en 66 s.
+
+`uv run baker log [--desde 2026-10-28]` lo resume por Baker y modelo: llamadas, % ok, reintentos, mediana y p90 de segundos y tokens de salida por segundo (este último cuenta todo el tiempo de la llamada, así que sirve para comparar modelos en el mismo Baker, no como velocidad del modelo). Solo ve a los Bakers: Open WebUI y Qwen Code van directo a llama-swap.
 
 **Varias sesiones a la vez:** no hace falta cola propia. El planificador FIFO de llama-swap (desde v264) deja esperando una petición que sacaría a un modelo que está respondiendo y la atiende al terminar (probado el 2026-10-27: `qwen` llegó a media respuesta de `bonsai`, esperó 42 s y respondió). Las peticiones al modelo ya cargado pasan primero, así que una sesión con muchas llamadas seguidas puede hacer esperar a otra.
 

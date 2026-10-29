@@ -34,6 +34,8 @@ def main() -> None:
     chs.add_parser("pendientes", help="conversaciones escaladas al dueño").add_argument("producto", nargs="?")
     chs.add_parser("eval", help="set de evaluación TOML contra el modelo real").add_argument("set")
     sub.add_parser("status", help="qué modelo atiende cada Baker y cuál está cargado")
+    sub.add_parser("log", help="uso real por Baker y modelo: llamadas, % ok, segundos, tok/s").add_argument(
+        "--desde", help="fecha ISO, p. ej. 2026-10-28")
     sys.stdout.reconfigure(encoding="utf-8")  # antes de parsear: la ayuda también lleva acentos
     sys.stderr.reconfigure(encoding="utf-8")
     sys.stdin.reconfigure(encoding="utf-8")  # `baker chat hablar`: sin esto, Windows lee en cp1252
@@ -50,6 +52,8 @@ def main() -> None:
             if a.accion == "hablar":
                 return _hablar(a.producto)
             res = chat.pendientes(a.producto) if a.accion == "pendientes" else chat.evaluar(a.set)
+        elif a.cmd == "log":
+            res = core.resumen_log(a.desde)
         else:
             res = core.estado()
     except core.BakerError as e:
