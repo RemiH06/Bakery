@@ -95,7 +95,7 @@ Los Bakers piden el modelo virtual `principal`; el perfil activo de llama-swap d
 
 ## Servidor (una vez)
 
-Todo lo del nodo de modelos vive en [`servidor/`](servidor/): [`llama-swap.yaml`](servidor/llama-swap.yaml) y [`vigilante.py`](servidor/vigilante.py) son comunes, y cada plataforma tiene su setup. El YAML no nombra binarios: los toma de `BAKERS_LLAMA_SERVER`, `BAKERS_PRISM_SERVER` y `BAKERS_WHISPER_SERVER`, que pone el setup (si falta una, llama-swap no carga la configuración).
+Todo lo del nodo de modelos vive en [`servidor/`](servidor/): [`llama-swap.yaml`](servidor/llama-swap.yaml) y [`vigilante.py`](servidor/vigilante.py) son comunes, y cada plataforma tiene su setup. El YAML no nombra binarios: los toma de `BAKERS_LLAMA_SERVER`, `BAKERS_PRISM_SERVER` y `BAKERS_WHISPER_SERVER`, que pone el setup (si falta una, llama-swap no carga la configuración). Para otra máquina, qué modelos caben y cómo medirlos está en [`MODELOS.md`](MODELOS.md).
 
 ### Windows ([`servidor/windows/`](servidor/windows/), Pixilate)
 

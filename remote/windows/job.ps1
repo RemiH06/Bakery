@@ -52,6 +52,12 @@ Set-Location '$Dir'
     }
     'log' { Get-Content "$root\$Name.log" -Tail $Tail }
     'stop' {
+        # Stop-ScheduledTask solo detiene el PowerShell de la tarea y regresa sin esperar: los hijos (python,
+        # llama-server) siguen vivos y el log sigue abierto para el siguiente `start`. Se mata el árbol completo.
+        $procs = Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" |
+            Where-Object { $_.CommandLine -like "*$root\$Name.ps1*" }
+        # Antes que Stop-ScheduledTask: con el padre muerto, taskkill /T ya no encuentra a los hijos
+        foreach ($p in $procs) { taskkill /T /F /PID $p.ProcessId 2>&1 | Out-Null }
         Stop-ScheduledTask $task
         Unregister-ScheduledTask $task -Confirm:$false
         "Detenido $task"

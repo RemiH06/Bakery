@@ -53,7 +53,8 @@ $cmd = "(Get-Process -Id `$PID).PriorityClass = 'BelowNormal'; " +
     "`$env:BAKERS_LLAMA_SERVER = 'llama.cpp/llama-server.exe'; `$env:BAKERS_PRISM_SERVER = 'llama.cpp-prism/llama-server.exe'; " +
     "`$env:BAKERS_WHISPER_SERVER = 'whisper.cpp/Release/whisper-server.exe'; " +
     ".\llama-swap\llama-swap.exe -config '$config' -listen 127.0.0.1:8090 -watch-config"
-# Reinicio limpio: `job.ps1 stop` no mata a los hijos y un llama-server huérfano se queda con la VRAM
+# Reinicio limpio: `job.ps1 stop` mata el árbol de la tarea; el Stop-Process cubre un llama-server que haya
+# quedado huérfano de antes (se queda con la VRAM)
 if (Get-ScheduledTask 'bakery-bakers' -EA SilentlyContinue) {
     & $job stop bakers
     Stop-Process -Name llama-swap, llama-server, whisper-server -Force -EA SilentlyContinue
