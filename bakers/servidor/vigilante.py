@@ -57,8 +57,8 @@ def api(ruta: str, metodo: str = "GET", cuerpo: dict | None = None, base: str = 
     if datos:
         req.add_header("Content-Type", "application/json")
     with urllib.request.urlopen(req, timeout=10) as r:
-        texto = r.read()
-    return json.loads(texto) if texto else None
+        # Algunas rutas de llama-swap (unload) responden texto plano, no JSON
+        return json.load(r) if r.headers.get_content_type() == "application/json" else r.read().decode()
 
 
 def vram() -> tuple[int, int]:
