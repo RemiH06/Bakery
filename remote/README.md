@@ -1,5 +1,7 @@
 # Acceso remoto a Pixilate
 
+Scripts por plataforma: [`windows/`](windows/) (Pixilate: `pixilate-setup.ps1`, `job.ps1`) y [`debian/`](debian/) (las Pi: `pi-setup.sh`). `aerilate.pub` es común.
+
 Aerilate entra a Pixilate por SSH dentro de Tailscale: sin abrir puertos en el router, funciona con CGNAT, en redes ajenas (escuela, cafeterías) y también en casa (en la misma red Tailscale conecta directo por la LAN, sin dar la vuelta por internet).
 
 ```
@@ -13,7 +15,7 @@ Más adelante (opcional): una Raspberry siempre encendida despierta a Pixilate p
 1. Clonar este repo en Pixilate. `remote/aerilate.pub` es la llave pública de Aerilate (pública por diseño: sin ella no se puede entrar a nada).
 2. PowerShell como administrador, desde la raíz del repo:
    ```powershell
-   powershell -ExecutionPolicy Bypass -File .\remote\pixilate-setup.ps1
+   powershell -ExecutionPolicy Bypass -File .\remote\windows\pixilate-setup.ps1
    ```
    Abre la URL que imprime Tailscale e inicia sesión. Anota el usuario SSH del resumen.
 
@@ -38,7 +40,7 @@ Prueba: `ssh pixilate nvidia-smi`.
 Cerrar SSH mata lo que se lanzó en la sesión. `job.ps1` (corre en Pixilate) lo lanza como tarea programada que sigue aunque Aerilate se apague:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\remote\job.ps1 start <nombre> <carpeta> "<comando>"
+powershell -NoProfile -ExecutionPolicy Bypass -File .\remote\windows\job.ps1 start <nombre> <carpeta> "<comando>"
 # list · log <nombre> -Tail 50 · stop <nombre>
 ```
 
@@ -49,7 +51,7 @@ Logs en `~\bakery-jobs\<nombre>.log`.
 El script ya deja lista la tarjeta de red si Pixilate tiene cable. Falta el BIOS (Asus B550, `Supr` al arrancar): `Advanced > APM Configuration`: `ErP Ready = Disabled`, `Power On By PCI-E = Enabled`. En la Pi:
 
 ```bash
-./pi-setup.sh AA:BB:CC:DD:EE:FF   # la MAC del resumen
+remote/debian/pi-setup.sh AA:BB:CC:DD:EE:FF   # la MAC del resumen
 ```
 
 Desde Aerilate: `ssh <pi> wake-pixilate`, esperar ~1 min, `ssh pixilate`. Apagar al terminar: `ssh pixilate "shutdown /s /t 0"`.

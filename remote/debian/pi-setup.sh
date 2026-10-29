@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Mete una Raspberry al tailnet y le deja el comando wake-pixilate.
-# Uso (en la Pi): ./pi-setup.sh AA:BB:CC:DD:EE:FF   (la MAC que imprime pixilate-setup.ps1)
+# Uso (en la Pi): remote/debian/pi-setup.sh AA:BB:CC:DD:EE:FF   (la MAC que imprime pixilate-setup.ps1)
 set -euo pipefail
 mac="${1:?Uso: $0 <MAC de Pixilate>}"
 

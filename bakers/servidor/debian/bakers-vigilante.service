@@ -1,0 +1,19 @@
+# Plantilla: setup.sh la instala solo con BAKERS_VIGILANTE=1 (máquina compartida con otra carga de GPU).
+[Unit]
+Description=Bakers: vigilante de marchas según la VRAM y la RAM libres
+After=bakers.service
+Wants=bakers.service
+
+[Service]
+User=@USUARIO@
+Environment=BAKERS_URL=http://127.0.0.1:@PUERTO@
+Environment=BAKERS_LLAVE=@ROOT@/api-key.txt
+ExecStart=/usr/bin/python3 "@SERVIDOR@/vigilante.py"
+Restart=always
+RestartSec=5
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target

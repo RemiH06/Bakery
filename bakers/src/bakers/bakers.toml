@@ -1,6 +1,6 @@
 # Cada Baker es configuración, no código: qué modelo de llama-swap lo atiende, con qué esquema
 # responde y su prompt de sistema. Agregar un Baker con un esquema existente no toca Python.
-#   modelo       ID en bakers/pixilate/llama-swap.yaml; "principal" sigue la marcha del vigilante
+#   modelo       ID en bakers/servidor/llama-swap.yaml; "principal" sigue la marcha del vigilante
 #   esquema      "resumen", "ficha" o "clasificacion" (ver schemas.py)
 #   descripcion  lo que lee Claude en la herramienta MCP para decidir cuándo usarlo
 #   lote         solo clasificacion: líneas por llamada

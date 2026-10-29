@@ -1,7 +1,7 @@
 ﻿#Requires -RunAsAdministrator
 # Prepara Pixilate para recibir SSH desde Aerilate por Tailscale y despertar por Wake-on-LAN.
 # Correr en Pixilate, PowerShell como administrador. Idempotente: se puede repetir.
-param([string]$PublicKeyFile = "$PSScriptRoot\aerilate.pub")
+param([string]$PublicKeyFile = "$PSScriptRoot\..\aerilate.pub")
 $ErrorActionPreference = 'Stop'
 
 if (-not (Test-Path $PublicKeyFile)) { throw "No existe $PublicKeyFile (copia ahí el id_ed25519.pub de Aerilate)" }

@@ -9,7 +9,7 @@ Claude Code ─MCP─┐                               llama-swap 127.0.0.1:8090
 Remi ─── CLI ────┘   lee archivos, valida,       tailscale serve :8090 ├─ qwen   (llama.cpp)
                      yt-dlp y ffmpeg (reel)                           ├─ vision (qwen + mmproj)
                                                                       └─ whisper (whisper.cpp)
-                     log ~/.bakers/log.jsonl                          vigilante.ps1 elige la marcha
+                     log ~/.bakers/log.jsonl                          vigilante.py elige la marcha
 ```
 
 Un Baker no tiene herramientas ni bucle: no puede escribir, borrar ni salir a la red aunque un archivo le inyecte instrucciones. Si una tarea pide varios pasos, Claude hace varias llamadas.
@@ -42,7 +42,7 @@ uv run baker chat eval tests/chat/casa-jacaranda.toml
 
 El set de evaluación ([`tests/chat/`](tests/chat/), con una hoja ficticia) tiene 22 preguntas respondibles (aciertan si no escala y traen el dato esperado), 10 no respondibles (aciertan si escala) y 15 intentos de inyección (aciertan si no traen nada de `prohibido`). Corre en una base aparte. Con Bonsai (2026-10-28): 100 % en las tres en las dos últimas corridas, ~1.2 a 2 s por turno. Las reglas que hicieron falta: escalar en vez de deducir "no hay" de lo que la hoja no menciona, y el texto fijo de traspaso (antes el modelo lo redactaba cada vez distinto y a veces mencionaba "la información disponible"). Un acierto por subcadena no prueba que no haya inventado nada: después de cambiar el `sistema`, leer las respuestas completas.
 
-**Capacidad** ([`pixilate/carga.py`](pixilate/carga.py), 2026-10-28): con Bonsai y `-np 1`, los turnos se forman en la cola de llama-server y cada conversación activa suma ~1.4 s. p95 de 6.4 s con 4 conversaciones escribiendo sin pausa y 12.5 s con 8; unos 40 turnos por minuto en total, así que con huéspedes que escriben cada 30 a 60 s aguanta decenas de conversaciones abiertas. `-np 4 --kv-unified` no ayuda con Bonsai (cada conversación baja a 12 tok/s y el p95 sube). En la marcha `media`, Qwen relee el prompt con los expertos en RAM: 1 o 2 conversaciones activas, y si no, el traspaso a los 60 s. Tabla completa en `history.md`.
+**Capacidad** ([`banco/carga.py`](banco/carga.py), 2026-10-28): con Bonsai y `-np 1`, los turnos se forman en la cola de llama-server y cada conversación activa suma ~1.4 s. p95 de 6.4 s con 4 conversaciones escribiendo sin pausa y 12.5 s con 8; unos 40 turnos por minuto en total, así que con huéspedes que escriben cada 30 a 60 s aguanta decenas de conversaciones abiertas. `-np 4 --kv-unified` no ayuda con Bonsai (cada conversación baja a 12 tok/s y el p95 sube). En la marcha `media`, Qwen relee el prompt con los expertos en RAM: 1 o 2 conversaciones activas, y si no, el traspaso a los 60 s. Tabla completa en `history.md`.
 
 ### `reel`
 
@@ -69,12 +69,12 @@ uv run baker cola analizar -d <carpeta de notas> [-m vision-abliterado]   # `ree
 
 `analizar` no descarga nunca: con un enlace de Instagram cuyo video falta, lo regresa a pendiente. Corre solo con la marcha `alta`; con otra espera 5 min y vuelve a mirar, porque con un juego abierto el grupo `reel` (~6 GB) no cabe. Un reel que falla dos veces el análisis queda como fallido. `analizar` termina cuando no queda nada bajado, así que se vuelve a correr conforme `bajar` avanza (de noche, por ejemplo); `-m` cambia el modelo de `bakers.toml` solo para esa corrida. Ojo: los enlaces que no son de Instagram (TikTok, Facebook) sí se vuelven a bajar al analizar, porque `_obtener` solo reconoce como ya bajados los códigos de Instagram.
 
-**Días seguidos en Aerilate.** Tiene que correr ahí porque ahí están las cookies de Firefox. Con [`remote/job.ps1`](../remote/job.ps1) (tarea programada S4U: sigue con la terminal o VS Code cerrados y vuelve a arrancar con Windows), desde `bakers/` en una PowerShell **de administrador** (registrar una tarea S4U o de arranque lo pide; sin eso, `Register-ScheduledTask` da "Acceso denegado"). La tarea corre igual con la cuenta de Remi, no como administrador:
+**Días seguidos en Aerilate.** Tiene que correr ahí porque ahí están las cookies de Firefox. Con [`remote/windows/job.ps1`](../remote/windows/job.ps1) (tarea programada S4U: sigue con la terminal o VS Code cerrados y vuelve a arrancar con Windows), desde `bakers/` en una PowerShell **de administrador** (registrar una tarea S4U o de arranque lo pide; sin eso, `Register-ScheduledTask` da "Acceso denegado"). La tarea corre igual con la cuenta de Remi, no como administrador:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File ..\remote\job.ps1 start cola . "uv run baker cola bajar" -AtStartup
-powershell -NoProfile -ExecutionPolicy Bypass -File ..\remote\job.ps1 log cola
-powershell -NoProfile -ExecutionPolicy Bypass -File ..\remote\job.ps1 stop cola
+powershell -NoProfile -ExecutionPolicy Bypass -File ..\remote\windows\job.ps1 start cola . "uv run baker cola bajar" -AtStartup
+powershell -NoProfile -ExecutionPolicy Bypass -File ..\remote\windows\job.ps1 log cola
+powershell -NoProfile -ExecutionPolicy Bypass -File ..\remote\windows\job.ps1 stop cola
 ```
 
 Las tareas pueden arrancar y seguir con batería. Al suspender la laptop el proceso se congela, no muere; al despertar, la espera sigue por reloj, así que si la pausa ya venció descarga enseguida, y si la red tarda en volver espera los 5 min de "sin red". No hay `WakeToRun`: la laptop no se despierta sola para bajar. Si Firefox pierde la sesión de Instagram, todo cuenta como bloqueo; `cola estado` lo muestra en `motivo` y `fallidos`.
@@ -83,7 +83,7 @@ Las tareas pueden arrancar y seguir con batería. Al suspender la laptop el proc
 
 ## Marchas
 
-Los Bakers piden el modelo virtual `principal`; el perfil activo de llama-swap decide quién lo atiende. `vigilante.ps1` mira la VRAM cada 5 s y elige la marcha más alta que cabe dejando 1 GB libre:
+Los Bakers piden el modelo virtual `principal`; el perfil activo de llama-swap decide quién lo atiende. [`servidor/vigilante.py`](servidor/vigilante.py) mira la VRAM cada 5 s y elige la marcha más alta que cabe dejando 1 GB libre:
 
 | Marcha | `principal` es | VRAM propia (contexto 32k) | Cabe si lo demás usa |
 |---|---|---|---|
@@ -91,17 +91,32 @@ Los Bakers piden el modelo virtual `principal`; el perfil activo de llama-swap d
 | `media` | `qwen`, expertos en RAM | ~3.8 GB con el escritorio (3.35 propios) | hasta ~7.9 GB |
 | `ninguna` | nada: el Baker responde error y Claude delega en otro lado | 0 | lo que sea |
 
-`whisper`, `vision`, `abliterado`, `bonsai-abliterado`, `vision-abliterado` y `qwen-gpu` no son marchas, pero su VRAM cuenta como nuestra, no como de un juego. Baja al momento, sube solo tras un minuto cabiendo y descarga un modelo que ya no cabe solo cuando no está respondiendo. Probar sin abrir un juego: `vigilante.ps1 -Extra 3000 -Duracion 30` simula 3 GB ocupados.
+`whisper`, `vision`, `abliterado`, `bonsai-abliterado`, `vision-abliterado` y `qwen-gpu` no son marchas, pero su VRAM cuenta como nuestra, no como de un juego. Baja al momento, sube solo tras un minuto cabiendo y descarga un modelo que ya no cabe solo cuando no está respondiendo. Probar sin abrir un juego: `uv run servidor/vigilante.py --extra 3000 --duracion 30` en el servidor simula 3 GB ocupados (si el vigilante del servicio sigue corriendo, la vuelve a subir al instante: para una prueba limpia, detenerlo antes). Es para una máquina compartida con juegos; en un servidor dedicado sobra y basta la marcha `alta` fija.
 
-## Pixilate (una vez)
+## Servidor (una vez)
 
-Necesita `~\bakers\` con los dos llama.cpp y los modelos de 1.0a. Para `reel`, además: whisper.cpp b5454 (`whisper-bin-win-cuda-12.4.0-x64.zip` descomprimido en `whisper.cpp\`), `models\ggml-large-v3-turbo-q8_0.bin` y `models\mmproj-Qwen3.6-35B-A3B-F16.gguf` (es `mmproj-F16.gguf` de `unsloth/Qwen3.6-35B-A3B-GGUF`, renombrado). Desde la raíz del clon:
+Todo lo del nodo de modelos vive en [`servidor/`](servidor/): [`llama-swap.yaml`](servidor/llama-swap.yaml) y [`vigilante.py`](servidor/vigilante.py) son comunes, y cada plataforma tiene su setup. El YAML no nombra binarios: los toma de `BAKERS_LLAMA_SERVER`, `BAKERS_PRISM_SERVER` y `BAKERS_WHISPER_SERVER`, que pone el setup (si falta una, llama-swap no carga la configuración).
+
+### Windows ([`servidor/windows/`](servidor/windows/), Pixilate)
+
+La variante para una máquina que también es de juegos: prioridad baja y vigilante. Necesita `~\bakers\` con los dos llama.cpp y los modelos de 1.0a. Para `reel`, además: whisper.cpp b5454 (`whisper-bin-win-cuda-12.4.0-x64.zip` descomprimido en `whisper.cpp\`), `models\ggml-large-v3-turbo-q8_0.bin` y `models\mmproj-Qwen3.6-35B-A3B-F16.gguf` (es `mmproj-F16.gguf` de `unsloth/Qwen3.6-35B-A3B-GGUF`, renombrado). Desde la raíz del clon:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File bakers\pixilate\setup.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File bakers\servidor\windows\setup.ps1
 ```
 
-Descarga llama-swap v264 (verifica el checksum), genera `~\bakers\api-key.txt` legible solo por la cuenta, lanza con `remote/job.ps1 -AtStartup` los trabajos `bakers` (llama-swap) y `bakers-vigilante`, y publica al tailnet con `tailscale serve --https=8090`. Volver a correrlo es el reinicio limpio (mata también los `llama-server` hijos). La configuración ([`pixilate/llama-swap.yaml`](pixilate/llama-swap.yaml)) se lee del clon y se recarga sola al cambiar (`-watch-config`); la recarga regresa a la marcha `alta` y el vigilante la corrige en el siguiente ciclo. **Ojo:** recargar apaga todos los modelos y solo espera 30 s a las respuestas en curso (`shutdownTimeout` de llama-swap); una más larga se corta. Hacer `git pull` de un cambio a `llama-swap.yaml` con los Bakers quietos (`baker status` sin nada en `cargados`, o sin otra sesión usándolos).
+En una PowerShell de administrador (las tareas S4U lo piden). Descarga llama-swap v264 (verifica el checksum), instala `uv` con winget si falta (corre el vigilante con `psutil` sin tocar el Python del sistema), genera `~\bakers\api-key.txt` legible solo por la cuenta, lanza con `remote/windows/job.ps1 -AtStartup` los trabajos `bakers` (llama-swap) y `bakers-vigilante`, y publica al tailnet con `tailscale serve --https=8090`. Volver a correrlo es el reinicio limpio (mata también los `llama-server` hijos). La configuración se lee del clon y se recarga sola al cambiar (`-watch-config`); la recarga regresa a la marcha `alta` y el vigilante la corrige en el siguiente ciclo. **Ojo:** recargar apaga todos los modelos y solo espera 30 s a las respuestas en curso (`shutdownTimeout` de llama-swap); una más larga se corta. Hacer `git pull` de un cambio a `llama-swap.yaml` con los Bakers quietos (`baker status` sin nada en `cargados`, o sin otra sesión usándolos).
+
+### Debian ([`servidor/debian/`](servidor/debian/): servidor propio, nube, WSL o una Pi)
+
+Necesita `~/bakers/` con los modelos y los binarios compilados para Linux (por defecto `llama.cpp/build/bin/llama-server`, `llama.cpp-prism/build/bin/llama-server` y `whisper.cpp/build/bin/whisper-server`; otras rutas por variable de entorno). Desde la raíz del clon, con la cuenta que va a correr los modelos:
+
+```bash
+bash bakers/servidor/debian/setup.sh                    # servidor dedicado: marcha `alta` fija
+BAKERS_VIGILANTE=1 bash bakers/servidor/debian/setup.sh # máquina compartida: también el vigilante
+```
+
+Descarga llama-swap v264 para la arquitectura de la máquina (`amd64` o `arm64`, verifica el checksum), genera las dos llaves con `chmod 600` y deja las unidades de systemd `bakers` (y `bakers-vigilante`) con `Restart=always` y `Nice=10`. Al reiniciar, systemd mata también a los `llama-server` hijos, cosa que en Windows hace el setup a mano. Si la máquina está en el tailnet, publica con `tailscale serve`; en WSL no (el nodo de Tailscale es el Windows de fuera). `BAKERS_PUERTO` cambia el 8090. Log: `journalctl -u bakers -f`.
 
 ## Aerilate
 
@@ -155,10 +170,10 @@ ssh pixilate 'wsl -d Debian -- docker cp bakers-webui-open-webui-1:/tmp/webui-re
 ## Seguridad
 
 - llama-swap y cada llama-server escuchan solo en `127.0.0.1`; afuera solo llega `tailscale serve`, que exige estar en el tailnet. La ACL deja a los invitados solo en el 443.
-- Sin `Authorization: Bearer <llave>` llama-swap no responde. Una llave por cliente: `api-key.txt` (Aerilate) y `api-key-pi.txt` (frambuesa-yi, la Pi pública), ninguna en el repo. Si una se filtra, borrar solo ese archivo y volver a correr `setup.ps1`; la otra sigue igual.
+- Sin `Authorization: Bearer <llave>` llama-swap no responde. Una llave por cliente: `api-key.txt` (Aerilate) y `api-key-pi.txt` (frambuesa-yi, la Pi pública), ninguna en el repo. Si una se filtra, borrar solo ese archivo y volver a correr el setup; la otra sigue igual.
 - La ACL de Tailscale deja a `tag:publico` (frambuesa-yi) llegar a Pixilate solo en el 8090, con pruebas en la política que lo verifican al guardar.
 - Cortar todo: `ssh pixilate "tailscale serve --https=8090 off"`.
-- La llave en Pixilate solo la lee la cuenta (`icacls` con `EQUIPO\cuenta`: si la cuenta se llama igual que el equipo, el nombre a secas resuelve al equipo).
+- Las llaves solo las lee la cuenta del servicio: `chmod 600` en Debian; en Windows, `icacls` con `EQUIPO\cuenta`: si la cuenta se llama igual que el equipo, el nombre a secas resuelve al equipo.
 
 ## Tests
 

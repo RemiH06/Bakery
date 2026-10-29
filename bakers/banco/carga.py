@@ -1,7 +1,7 @@
 """Prueba de carga del Baker `chat`: N conversaciones a la vez, cada una de varios turnos seguidos, con la hoja y
 las preguntas del set de evaluación. Mide la latencia por turno y los tok/s que da llama-server.
 
-    uv run python pixilate/carga.py --url http://127.0.0.1:10101 -n 1 2 4 8
+    uv run python banco/carga.py --url http://127.0.0.1:10101 -n 1 2 4 8
 
 --url apunta a un llama-server (túnel SSH) o a llama-swap (con BAKERS_API_KEY). No guarda nada en chat.db."""
 import argparse

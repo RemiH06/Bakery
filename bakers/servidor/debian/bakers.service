@@ -1,0 +1,26 @@
+# Plantilla: setup.sh reemplaza los @...@ y la copia a /etc/systemd/system/.
+[Unit]
+Description=Bakers: llama-swap, endpoint de modelos locales
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=@USUARIO@
+WorkingDirectory=@ROOT@
+# Binarios por plataforma (llama-swap.yaml es común con Windows)
+Environment=BAKERS_LLAMA_SERVER=@LLAMA@
+Environment=BAKERS_PRISM_SERVER=@PRISM@
+Environment=BAKERS_WHISPER_SERVER=@WHISPER@
+# Las llaves entran por variable de entorno, no por argumento (los argumentos los ve cualquiera con ps)
+ExecStart=/bin/sh -c 'BAKERS_API_KEY="$$(cat api-key.txt)" BAKERS_API_KEY_PI="$$(cat api-key-pi.txt)" exec ./llama-swap/llama-swap -config "@SERVIDOR@/llama-swap.yaml" -listen 127.0.0.1:@PUERTO@ -watch-config'
+Restart=always
+RestartSec=5
+# Prioridad baja, que heredan los llama-server: en una máquina compartida no le quita CPU a lo demás, y en una
+# dedicada no cuesta nada (1.0n: con los expertos de Qwen en CPU, un juego bajaba de 120 a 40 FPS)
+Nice=10
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target

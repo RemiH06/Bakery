@@ -1,20 +1,22 @@
-# llama-swap en Pixilate: un endpoint compatible con OpenAI en 127.0.0.1:8090; el campo `model`
+# llama-swap del nodo de modelos: un endpoint compatible con OpenAI en 127.0.0.1:8090; el campo `model`
 # de cada llamada decide qué llama-server arranca (uno a la vez, la VRAM no da para dos).
-# Corre desde ~\bakers (setup.ps1), por eso las rutas son relativas. Se recarga solo al editarlo.
+# El mismo archivo sirve en Windows y Linux: corre desde ~/bakers (lo deja así el setup de cada plataforma,
+# en windows/ o debian/), por eso las rutas de modelos son relativas. Se recarga solo al editarlo.
+# Los números de VRAM y tok/s de los comentarios son de Pixilate (RTX 3060 12 GB, 48 GB de RAM).
 
 healthCheckTimeout: 300  # Qwen pesa 22 GB: cargarlo desde disco tarda
 logLevel: info
 startPort: 10001         # puertos internos de cada llama-server, solo loopback
 sendLoadingState: false  # el estado de carga se inyecta como texto y rompería el JSON forzado
 
-# Sin llave no responde. Los valores viven en ~\bakers\api-key.txt (Aerilate) y api-key-pi.txt
-# (frambuesa-yi), nunca en el repo; setup.ps1 los genera y los pasa como variables de entorno.
+# Sin llave no responde. Los valores viven en ~/bakers/api-key.txt (Aerilate) y api-key-pi.txt
+# (frambuesa-yi), nunca en el repo; el setup los genera y los pasa como variables de entorno.
 apiKeys:
   - "${env.BAKERS_API_KEY}"
   - "${env.BAKERS_API_KEY_PI}"
 
 # Marchas: los Bakers piden el ID virtual `principal` y el perfil activo decide qué modelo lo atiende.
-# vigilante.ps1 cambia de perfil según la VRAM libre; al arrancar (o recargar) se empieza en `alta`.
+# vigilante.py cambia de perfil según la VRAM libre; al arrancar (o recargar) se empieza en `alta`.
 hooks:
   on_startup:
     profile: "alta"
@@ -34,6 +36,11 @@ profiles:
       "principal": ~
 
 macros:
+  # Binarios: cambian de ruta y extensión por plataforma, así que los pone el setup de cada una como variable de
+  # entorno. Si falta una, llama-swap no carga la configuración (mejor que arrancar a medias).
+  "llama": "${env.BAKERS_LLAMA_SERVER}"     # llama.cpp oficial con CUDA
+  "prism": "${env.BAKERS_PRISM_SERVER}"     # fork de PrismML, para los Bonsai ternarios (PQ2_0)
+  "whisper": "${env.BAKERS_WHISPER_SERVER}" # whisper-server de whisper.cpp
   # Contexto de 32k en un solo slot (con -np auto se reparte entre varios), sin pensar:
   # un Baker es una función de un paso y el razonamiento solo gasta tiempo.
   "comunes": "--host 127.0.0.1 --port ${PORT} -c 32768 -np 1 -fa on --reasoning off --no-webui"
@@ -43,7 +50,7 @@ models:
   "bonsai":
     name: "Ternary Bonsai 2 27B PQ2_0"
     cmd: |
-      llama.cpp-prism/llama-server.exe ${comunes}
+      ${prism} ${comunes}
       -m models/Ternary-Bonsai-2-27B-PQ2_0.gguf -ngl 99
     ttl: 600  # se descarga tras 10 min sin uso y deja la GPU libre
 
@@ -53,7 +60,7 @@ models:
   "qwen":
     name: "Qwen3.6 35B-A3B UD-Q4_K_XL"
     cmd: |
-      llama.cpp/llama-server.exe ${comunes}
+      ${llama} ${comunes}
       -m models/Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf -ngl 99 -ncmoe 99 -b 2048 -ub 2048
     ttl: 600
 
@@ -65,7 +72,7 @@ models:
   "abliterado":
     name: "Huihui Qwen3.6 35B-A3B abliterated Q4_K, 128k"
     cmd: |
-      llama.cpp/llama-server.exe ${comunes}
+      ${llama} ${comunes}
       -m models/Huihui-Qwen3.6-35B-A3B-abliterated-Q4_K.gguf -ngl 99 -ncmoe 99
       -c 131072 -b 4096 -ub 4096
     ttl: 600
@@ -76,7 +83,7 @@ models:
   "bonsai-abliterado":
     name: "Huihui Ternary Bonsai 27B abliterated PQ2_0, 64k"
     cmd: |
-      llama.cpp-prism/llama-server.exe ${comunes}
+      ${prism} ${comunes}
       -m models/Huihui-Qwen3.8-27B-abliterated-Ternary-Bonsai-PQ2_0.gguf -ngl 99
       -c 65536 -ctk q8_0 -ctv q8_0
     ttl: 600
@@ -86,7 +93,7 @@ models:
   "vision-abliterado":
     name: "Huihui Qwen3.6 35B-A3B abliterated Q4_K + mmproj F16"
     cmd: |
-      llama.cpp/llama-server.exe ${comunes}
+      ${llama} ${comunes}
       -m models/Huihui-Qwen3.6-35B-A3B-abliterated-Q4_K.gguf -ngl 99 -ncmoe 99 --no-op-offload
       --mmproj models/mmproj-Huihui-Qwen3.6-35B-A3B-abliterated-F16.gguf
     ttl: 600
@@ -96,7 +103,7 @@ models:
   "qwen-gpu":
     name: "Qwen3.6 35B-A3B UD-Q4_K_XL, -ncmoe 24"
     cmd: |
-      llama.cpp/llama-server.exe ${comunes}
+      ${llama} ${comunes}
       -m models/Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf -ngl 99 -ncmoe 24
     ttl: 600
 
@@ -107,7 +114,7 @@ models:
     proxy: "http://127.0.0.1:${PORT}"
     checkEndpoint: /v1/audio/transcriptions/
     cmd: |
-      whisper.cpp/Release/whisper-server.exe --host 127.0.0.1 --port ${PORT} -l auto
+      ${whisper} --host 127.0.0.1 --port ${PORT} -l auto
       -m models/ggml-large-v3-turbo-q8_0.bin --request-path /v1/audio/transcriptions --inference-path ""
     ttl: 600
 
@@ -119,7 +126,7 @@ models:
   "vision":
     name: "Qwen3.6 35B-A3B UD-Q4_K_XL + mmproj F16"
     cmd: |
-      llama.cpp/llama-server.exe ${comunes}
+      ${llama} ${comunes}
       -m models/Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf -ngl 99 -ncmoe 99 --no-op-offload
       --mmproj models/mmproj-Qwen3.6-35B-A3B-F16.gguf
     ttl: 600
