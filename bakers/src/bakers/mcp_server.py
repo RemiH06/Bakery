@@ -21,8 +21,8 @@ def bake(baker: str, tarea: str, rutas: list[str], categorias: list[str] | None 
         raise ToolError(str(e)) from e  # MCP oculta el texto de cualquier otra excepción
 
 
-@mcp.tool(description="""Turn reels or short videos (Instagram, TikTok, Shorts; links or local files, up to 10 min)
-into inspiration notes on Pixilate: transcript, on-screen text, resources, quotes, visuals, claims to verify.
+@mcp.tool(description="""Turn reels or short videos (Instagram, TikTok, Shorts; links or local files, up to 10 min),
+or photo posts and carousels (Instagram /p/, TikTok photos), into inspiration notes on Pixilate: transcript, on-screen text, resources, quotes, visuals, claims to verify.
 Only pieces the user shared, one link each: never crawl accounts, feeds or saved lists.
 destino: folder where the notes go, per the project table in the inspiracion skill (e.g. docs/inspiracion of the
 current repo); heavy material (video, frames, transcript) always stays in ~/.bakers/reels.

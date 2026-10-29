@@ -27,6 +27,8 @@ def main() -> None:
     ca.add_argument("--lote", type=int, default=cola.LOTE)
     ca.add_argument("-m", "--modelo", help="cambia el de bakers.toml, p. ej. vision-abliterado")
     cs.add_parser("estado", help="bajados, pendientes, fallidos y próximo intento")
+    cs.add_parser("reintentar", help="regresa los fallidos a la cola").add_argument(
+        "--tipo", choices=("enlace", "bloqueo", "analisis"), help="solo los de este error (por defecto, todos)")
     ch = sub.add_parser("chat", help="Baker de atención a clientes: probar, ver escaladas, evaluar")
     chs = ch.add_subparsers(dest="accion", required=True)
     chs.add_parser("hablar", help="conversación nueva en la terminal (vacío o Ctrl+C para salir)").add_argument(
@@ -47,7 +49,8 @@ def main() -> None:
             res = reel.reel(a.fuentes, a.destino)
         elif a.cmd == "cola":
             res = {"agregar": lambda: cola.agregar(a.archivo), "bajar": lambda: cola.bajar(a.tope),
-                   "analizar": lambda: cola.analizar(a.destino, a.lote, a.modelo), "estado": cola.estado}[a.accion]()
+                   "analizar": lambda: cola.analizar(a.destino, a.lote, a.modelo), "estado": cola.estado,
+                   "reintentar": lambda: cola.reintentar(a.tipo)}[a.accion]()
         elif a.cmd == "chat":
             if a.accion == "hablar":
                 return _hablar(a.producto)

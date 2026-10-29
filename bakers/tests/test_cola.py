@@ -205,3 +205,25 @@ def test_video_local_lee_sus_metadatos(tmp_path):
     (carpeta / "video.mp4").write_bytes(b"x")
     video, meta = reel._obtener(str(carpeta / "video.mp4"), "firefox")
     assert video == carpeta / "video.mp4" and meta["webpage_url"] == "https://www.tiktok.com/x"
+
+
+def test_reintentar_por_tipo(monkeypatch, reloj, tmp_path):
+    _descargas(monkeypatch, tmp_path, {
+        "AAA": ["yt-dlp falló (1): ERROR: [Instagram] AAA: No video formats found!"],
+        "BBB": ["login required"] * 3})
+    cola.agregar(_enlaces(tmp_path, *(f"https://www.instagram.com/p/{c}/" for c in ("AAA", "BBB"))))
+    assert cola.bajar()["conteo"] == {"fallido": 2}
+    assert cola.reintentar("enlace") == {"reintentados": 1, "en_cola": 1}
+    assert cola.bajar()["conteo"] == {"bajado": 1, "fallido": 1}
+    assert cola.reintentar() == {"reintentados": 1, "en_cola": 1}
+    assert cola._leer()["items"]["BBB"]["intentos"] == 0
+    assert cola.bajar()["conteo"] == {"bajado": 2}
+
+
+def test_reintentar_analisis_vuelve_a_bajado(reloj):
+    cola._guardar({"items": {"AAA": {"url": "u", "estado": "fallido", "video": "v", "intentos": 0,
+                                     "intentos_analisis": 2, "error": "bucle"}},
+                   "pausa_hasta": None, "motivo": None, "dia": None, "bajados_hoy": 0})
+    assert cola.reintentar("bloqueo")["reintentados"] == 0
+    assert cola.reintentar("analisis")["reintentados"] == 1
+    assert cola._leer()["items"]["AAA"]["estado"] == "bajado"

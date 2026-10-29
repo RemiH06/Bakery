@@ -1,10 +1,11 @@
 """Baker `reel`: un reel (o video corto) a nota de inspiración, con el formato de la skill `inspiracion`.
 
-Aerilate descarga y corta (yt-dlp, ffmpeg); Pixilate solo sirve modelos por llama-swap: whisper.cpp
+Aerilate descarga y corta (yt-dlp, gallery-dl para fotos y carruseles, ffmpeg); Pixilate solo sirve modelos por llama-swap: whisper.cpp
 transcribe y Qwen con visión lee fotogramas, transcripción y caption en una sola llamada.
 Una pieza por enlace, a pedido de Remi: nada de rastrear cuentas, feeds ni guardados en bloque.
 """
 import base64
+import hashlib
 import json
 import re
 import shutil
@@ -24,6 +25,10 @@ CARPETA = Path.home() / ".bakers" / "reels"  # fuera de cualquier repo: es mater
 MAX_SEGUNDOS = 600  # reels y shorts; un video largo va por la skill `inspiracion` a mano
 MAX_FRAMES = 8      # ~660 tokens cada uno a 540 px de ancho: caben con holgura en los 32k
 CADA = 3.0          # segundos entre fotogramas en videos cortos
+IMAGENES = (".jpg", ".jpeg", ".png", ".webp")
+VIDEOS = (".mp4", ".mov", ".webm")  # un carrusel de Instagram puede mezclar videos entre las fotos
+# yt-dlp con un post de fotos de Instagram o TikTok; ahí entra gallery-dl
+SIN_VIDEO = ("No video formats found", "Unsupported URL")
 LOGPROB_MIN = -1.0  # segmentos de whisper por debajo son alucinación (letra inventada sobre música)
 
 
@@ -47,19 +52,44 @@ def codigo(fuente: str) -> str | None:
 
 
 def bajado(clave: str | None) -> Path | None:
-    """Video completo ya en CARPETA. Una descarga cortada deja `video.mp4.part` junto al info.json: no cuenta."""
-    if not clave or not (CARPETA / clave / "video.info.json").is_file():
+    """Video completo (o carpeta de una galería) ya en CARPETA. Una descarga cortada deja `video.mp4.part`
+    junto al info.json, o la galería en `<clave>.part`: no cuenta."""
+    if not clave:
+        return None
+    if (CARPETA / clave / "info.json").is_file():
+        return CARPETA / clave
+    if not (CARPETA / clave / "video.info.json").is_file():
         return None
     return next((v for v in (CARPETA / clave).glob("video.*")
                  if v.suffix not in (".json", ".part", ".ytdl") and ".part" not in v.name), None)
 
 
+def _galeria(fuente: str, navegador: str) -> Path:
+    """Fotos y carruseles que yt-dlp no baja. Baja a `<nombre>.part` y renombra al final: una carpeta a medias
+    nunca pasa por bajada."""
+    nombre = codigo(fuente) or "g-" + hashlib.sha1(fuente.encode()).hexdigest()[:10]  # TikTok: el id sale después
+    carpeta, parcial = CARPETA / nombre, CARPETA / f"{nombre}.part"
+    shutil.rmtree(parcial, ignore_errors=True)
+    _correr("gallery-dl", "--cookies-from-browser", navegador, "--sleep-request", "2", "--write-info-json",
+            "-D", str(parcial), "-f", "{num:>02}.{extension}", fuente)
+    if not _medios(parcial):
+        raise BakerError(f"gallery-dl no bajó fotos ni videos: {fuente}")
+    shutil.rmtree(carpeta, ignore_errors=True)  # restos de un yt-dlp fallido con el mismo id
+    parcial.rename(carpeta)
+    return carpeta
+
+
+def _medios(carpeta: Path) -> list[Path]:
+    """Las piezas de una galería en orden; el audio de un post de fotos de TikTok es música, no cuenta."""
+    return sorted(f for f in carpeta.glob("*") if f.suffix.lower() in IMAGENES + VIDEOS)
+
+
 def _obtener(fuente: str, navegador: str) -> tuple[Path, dict]:
-    """Ruta local del video y sus metadatos (vacíos si es un archivo local)."""
+    """Ruta local del video (o carpeta de la galería) y sus metadatos (vacíos si es un archivo local)."""
     local = Path(fuente).expanduser()
-    if local.is_file():
-        # Un video que ya bajó `cola bajar` (de cualquier sitio) trae sus metadatos al lado
-        return local, _metadatos(local) if (local.parent / "video.info.json").is_file() else {}
+    if local.is_file() or (local / "info.json").is_file():
+        # Un video o galería que ya bajó `cola bajar` (de cualquier sitio) trae sus metadatos al lado
+        return local, _metadatos(local) if local.is_dir() or (local.parent / "video.info.json").is_file() else {}
     if not fuente.startswith(("http://", "https://")):
         raise BakerError(f"Ni archivo ni enlace: {fuente}")
     # Ya bajado: reprocesar no vuelve a tocar Instagram (detecta actividad automatizada en la cuenta)
@@ -68,11 +98,17 @@ def _obtener(fuente: str, navegador: str) -> tuple[Path, dict]:
         return previo, _metadatos(previo)
     CARPETA.mkdir(parents=True, exist_ok=True)
     # Instagram pide sesión: las cookies se leen del navegador al momento, nunca se copian a disco
-    salida = _correr("yt-dlp", "--cookies-from-browser", navegador, "--sleep-requests", "2",
-                     "--no-playlist", "--no-progress",
-                     "--match-filter", f"duration<={MAX_SEGUNDOS}", "-f", "b[ext=mp4]/b",
-                     "--write-info-json", "-o", "%(id)s/video.%(ext)s", "--print", "after_move:filepath",
-                     fuente, cwd=CARPETA)
+    try:
+        salida = _correr("yt-dlp", "--cookies-from-browser", navegador, "--sleep-requests", "2",
+                         "--no-playlist", "--no-progress",
+                         "--match-filter", f"duration<={MAX_SEGUNDOS}", "-f", "b[ext=mp4]/b",
+                         "--write-info-json", "-o", "%(id)s/video.%(ext)s", "--print", "after_move:filepath",
+                         fuente, cwd=CARPETA)
+    except BakerError as e:
+        if not any(p in str(e) for p in SIN_VIDEO):
+            raise
+        carpeta = _galeria(fuente, navegador)
+        return carpeta, _metadatos(carpeta)
     if not salida.strip():
         raise BakerError(f"yt-dlp no bajó nada (¿dura más de {MAX_SEGUNDOS} s?): {fuente}")
     video = Path(salida.strip().splitlines()[-1])
@@ -80,6 +116,10 @@ def _obtener(fuente: str, navegador: str) -> tuple[Path, dict]:
 
 
 def _metadatos(video: Path) -> dict:
+    if video.is_dir():  # info.json de gallery-dl: cada sitio nombra distinto sus campos
+        info = json.loads((video / "info.json").read_text("utf-8"))
+        return {"channel": info.get("username") or info.get("user"), "uploader": info.get("fullname"),
+                "description": info.get("description") or info.get("desc"), "webpage_url": info.get("post_url")}
     info = json.loads((video.parent / "video.info.json").read_text("utf-8"))
     return {k: info.get(k) for k in ("channel", "uploader", "description", "webpage_url")}
 
@@ -93,7 +133,7 @@ def _sondear(video: Path) -> tuple[float, bool]:
     return duracion, any(s["codec_type"] == "audio" for s in datos["streams"])
 
 
-def _fotogramas(video: Path, trabajo: Path, duracion: float) -> list[tuple[float, Path]]:
+def _fotogramas(video: Path, trabajo: Path, duracion: float) -> list[tuple[str, Path]]:
     """Muestreo parejo en vez de cambios de escena: el texto que aparece sobre un plano fijo también cuenta."""
     n = max(1, min(MAX_FRAMES, round(duracion / CADA)))
     carpeta = trabajo / "frames"
@@ -104,7 +144,25 @@ def _fotogramas(video: Path, trabajo: Path, duracion: float) -> list[tuple[float
         jpg = carpeta / f"{k + 1:02d}.jpg"
         _correr("ffmpeg", "-y", "-loglevel", "error", "-ss", f"{t:.2f}", "-i", str(video),
                 "-frames:v", "1", "-vf", "scale=540:-2", "-q:v", "4", str(jpg))
-        tomas.append((t, jpg))
+        tomas.append((_mmss(t), jpg))
+    return tomas
+
+
+def _diapositivas(carpeta: Path) -> list[tuple[str, Path]]:
+    """Hasta MAX_FRAMES piezas de la galería, parejas y con la primera y la última (la portada y el cierre
+    suelen traer el tema y los recursos). De un video del carrusel, su primer segundo."""
+    medios = _medios(carpeta)
+    n, m = len(medios), min(len(medios), MAX_FRAMES)
+    elegidos = sorted({round(k * (n - 1) / max(m - 1, 1)) for k in range(m)})
+    frames = carpeta / "frames"
+    frames.mkdir(exist_ok=True)
+    tomas = []
+    for i in elegidos:
+        jpg = frames / f"{i + 1:02d}.jpg"
+        desde = ["-ss", "1"] if medios[i].suffix.lower() in VIDEOS else []
+        _correr("ffmpeg", "-y", "-loglevel", "error", *desde, "-i", str(medios[i]),
+                "-frames:v", "1", "-vf", "scale=540:-2", "-q:v", "4", str(jpg))
+        tomas.append((f"{i + 1}/{n}", jpg))
     return tomas
 
 
@@ -131,8 +189,8 @@ def _transcribir(c: httpx.Client, cfg: dict, video: Path, trabajo: Path) -> list
     return limpios
 
 
-def _mensaje(meta: dict, duracion: float, segmentos: list[dict], tomas: list[tuple[float, Path]]) -> list[dict]:
-    cabecera = [f"Duration: {_mmss(duracion)}"]
+def _mensaje(meta: dict, formato: str, segmentos: list[dict], tomas: list[tuple[str, Path]]) -> list[dict]:
+    cabecera = [formato]
     if meta.get("channel") or meta.get("uploader"):
         cabecera.append(f"Account: {meta.get('channel') or meta.get('uploader')}")
     if meta.get("description"):
@@ -140,7 +198,7 @@ def _mensaje(meta: dict, duracion: float, segmentos: list[dict], tomas: list[tup
     habla = "\n".join(f"[{s['t']}] {s['texto']}" for s in segmentos) or "(no speech)"
     partes = [{"type": "text", "text": "\n".join(cabecera) + f"\n\nTranscript:\n{habla}\n\nFrames:"}]
     for t, jpg in tomas:
-        partes.append({"type": "text", "text": f"[{_mmss(t)}]"})
+        partes.append({"type": "text", "text": f"[{t}]"})
         datos = base64.b64encode(jpg.read_bytes()).decode()
         partes.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{datos}"}})
     return partes
@@ -168,11 +226,11 @@ def _slug(texto: str) -> str:
     return slug if len(slug) <= 50 else slug[:51].rsplit("-", 1)[0]  # corta entre palabras
 
 
-def _nota(r: Reel, meta: dict, fuente: str, duracion: float, trabajo: Path) -> str:
+def _nota(r: Reel, meta: dict, fuente: str, formato: str, trabajo: Path) -> str:
     """Borrador con el formato de `inspiracion`; verificar recursos y escribir la Aplicación queda a Claude."""
     material = f"~/{trabajo.relative_to(Path.home()).as_posix()}/" if trabajo.is_relative_to(Path.home()) else trabajo
     lineas = [f"# {r.tema}", "", f"- Fuente: @{_cuenta(meta)}, {meta.get('webpage_url') or fuente}",
-              f"- Formato: reel, {_mmss(duracion)}", f"- Visto: {date.today():%Y-%m-%d}",
+              f"- Formato: {formato}", f"- Visto: {date.today():%Y-%m-%d}",
               f"- Material (video, transcripción, fotogramas): `{material}`", "", "## Idea central", r.idea_central, "", "## Recursos",
               "| Recurso | Qué es | Dónde | Verificado |", "|---|---|---|---|",
               *(f"| {x.nombre} | {x.que_es} | {x.donde} | no |" for x in r.recursos), "", "## Citas",
@@ -195,22 +253,32 @@ def _uno(c: httpx.Client, cfg: dict, fuente: str, destino: Path | None) -> dict:
     try:
         video, meta = _obtener(fuente, cfg["navegador"])
         marca("descarga")
-        trabajo = video.parent if meta else CARPETA / video.stem
-        trabajo.mkdir(parents=True, exist_ok=True)
-        duracion, con_audio = _sondear(video)
-        segmentos = _transcribir(c, cfg, video, trabajo) if con_audio else []
-        marca("whisper")  # incluye el ffmpeg del audio y, en la primera del lote, cargar whisper
-        tomas = _fotogramas(video, trabajo, duracion)
+        if video.is_dir():  # post de fotos o carrusel: sin habla que transcribir
+            trabajo, segmentos = video, []
+            tomas = _diapositivas(video)
+            n = len(_medios(video))
+            formato, cabecera = f"carrusel, {n} piezas", f"Photo post or carousel with {n} slides, no speech"
+        else:
+            trabajo = video.parent if meta else CARPETA / video.stem
+            trabajo.mkdir(parents=True, exist_ok=True)
+            duracion, con_audio = _sondear(video)
+            segmentos = _transcribir(c, cfg, video, trabajo) if con_audio else []
+            marca("whisper")  # incluye el ffmpeg del audio y, en la primera del lote, cargar whisper
+            tomas = _fotogramas(video, trabajo, duracion)
+            formato, cabecera = f"reel, {_mmss(duracion)}", f"Duration: {_mmss(duracion)}"
         marca("fotogramas")
-        r = core._llamar(c, cfg, _mensaje(meta, duracion, segmentos, tomas), Reel, uso)
+        r = core._llamar(c, cfg, _mensaje(meta, cabecera, segmentos, tomas), Reel, uso)
         marca("vision")
         r.texto_en_pantalla = _sin_subtitulos(r.texto_en_pantalla, segmentos)
-        texto = _nota(r, meta, fuente, duracion, trabajo)
+        if not segmentos:  # sin habla, la visión copia el texto de las diapositivas como citas (2026-10-29)
+            r.citas = []
+        texto = _nota(r, meta, fuente, formato, trabajo)
         (trabajo / "nota.md").write_text(texto, "utf-8")
         # La nota va al proyecto que la pidió; lo pesado (video, audio, fotogramas) se queda en CARPETA
         nota = trabajo / "nota.md" if destino is None else             destino / f"{date.today():%Y-%m-%d}-{_slug(_cuenta(meta))}-{_slug(r.tema)}.md"
         nota.write_text(texto, "utf-8")
-        res = {"fuente": fuente, "nota": str(nota), "transcripcion": str(trabajo / "transcripcion.json"),
+        transcripcion = trabajo / "transcripcion.json"
+        res = {"fuente": fuente, "nota": str(nota), "transcripcion": str(transcripcion) if segmentos else None,
                **r.model_dump()}
         return res
     except BakerError as e:

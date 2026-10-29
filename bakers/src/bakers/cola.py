@@ -32,7 +32,9 @@ LOTE = 5                  # reels por llamada a `reel.reel` en `analizar`
 _BLOQUEO = ("http error 400", "http error 401", "http error 403", "http error 429", "rate-limit", "rate limit",
             "login", "checkpoint", "challenge", "please wait a few minutes",
             # Instagram contesta una página vacía o de login en vez de JSON (2026-10-28: 283 seguidos)
-            "failed to parse json", "expecting value")
+            "failed to parse json", "expecting value",
+            # gallery-dl: "HttpError: '429 Too Many Requests'", "AuthorizationError"
+            "too many requests", "unauthorized", "forbidden", "authorizationerror")
 _RED = ("getaddrinfo", "timed out", "errno 11001", "connection reset", "connection refused",
         "connection aborted", "network is unreachable", "no route to host")
 
@@ -220,6 +222,28 @@ def bajar(tope: int = TOPE) -> dict:
             print(f"[cola] bajado {clave} ({e['bajados_hoy']} hoy)", flush=True)
 
 
+def reintentar(tipo: str | None = None) -> dict:
+    """Regresa los fallidos a la cola, todos o los de un tipo: "enlace" o "bloqueo" vuelven a pendiente,
+    "analisis" (bajado, pero la visión falló dos veces) vuelve a bajado. Los intentos empiezan de cero."""
+    cuenta = {"reintentados": 0}
+
+    def fn(e: dict) -> None:
+        for i in e["items"].values():
+            if i["estado"] != "fallido":
+                continue
+            suyo = "analisis" if i.get("intentos_analisis", 0) >= 2 else _tipo(i.get("error") or "")
+            if tipo not in (None, suyo):
+                continue
+            if suyo == "analisis":
+                i.update(estado="bajado", intentos_analisis=0)
+            else:
+                i.update(estado="pendiente", intentos=0)
+            cuenta["reintentados"] += 1
+
+    e = _cambiar(fn)
+    return {**cuenta, "en_cola": sum(i["estado"] == "pendiente" for i in e["items"].values())}
+
+
 def estado() -> dict:
     e = _leer()
     por = {}
@@ -241,7 +265,7 @@ def analizar(destino: str, lote: int = LOTE, modelo: str | None = None) -> dict:
             if i["estado"] != "bajado":
                 continue
             video = Path(i["video"]) if i.get("video") else None
-            if not (video and video.is_file()):
+            if not (video and video.exists()):  # una galería es carpeta
                 video = reel.bajado(reel.codigo(i["url"]))
             if not video:  # se borró el material: que lo baje `bajar`
                 _cambiar(lambda e, k=k: e["items"][k].update(estado="pendiente"))
