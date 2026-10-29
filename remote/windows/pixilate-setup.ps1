@@ -20,15 +20,21 @@ if (-not (Test-Path $auth) -or -not (Select-String -Path $auth -SimpleMatch $key
 }
 icacls $auth /inheritance:r /grant '*S-1-5-32-544:F' /grant '*S-1-5-18:F' | Out-Null  # Administradores y SYSTEM, por SID para Windows en español
 
-# 3. Solo llave, sin contraseña. PowerShell como shell por defecto
+# 3. Solo llave, sin contraseña. Sesiones de un cliente que desapareció (red caída, cliente matado) se cierran en
+# ~2 min en vez de ~2 h (sus procesos hijos no: Windows los deja vivos). PowerShell como shell por defecto
 $cfg = "$env:ProgramData\ssh\sshd_config"
 $lines = Get-Content $cfg
-if ($lines -match '^#?\s*PasswordAuthentication\s') {
-    $lines = $lines -replace '^#?\s*PasswordAuthentication\s+\w+', 'PasswordAuthentication no'
-} else {
-    $lines = @('PasswordAuthentication no') + $lines
+foreach ($opt in @{ PasswordAuthentication = 'no'; ClientAliveInterval = '30'; ClientAliveCountMax = '4' }.GetEnumerator()) {
+    # Al inicio y no al final: el final cae dentro del bloque `Match Group administrators`
+    if ($lines -match "^#?\s*$($opt.Key)\s") {
+        $lines = $lines -replace "^#?\s*$($opt.Key)\s+\w+", "$($opt.Key) $($opt.Value)"
+    } else {
+        $lines = @("$($opt.Key) $($opt.Value)") + $lines
+    }
 }
 Set-Content -Path $cfg -Value $lines -Encoding ascii
+& "$env:SystemRoot\System32\OpenSSH\sshd.exe" -t
+if ($LASTEXITCODE) { throw "sshd_config inválido; revisa $cfg antes de reiniciar sshd" }
 New-ItemProperty -Path 'HKLM:\SOFTWARE\OpenSSH' -Name DefaultShell -PropertyType String -Force `
     -Value "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" | Out-Null
 Restart-Service sshd
