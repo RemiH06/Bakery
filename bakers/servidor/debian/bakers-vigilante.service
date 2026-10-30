@@ -8,6 +8,8 @@ Wants=bakers.service
 User=@USUARIO@
 Environment=BAKERS_URL=http://127.0.0.1:@PUERTO@
 Environment=BAKERS_LLAVE=@ROOT@/api-key.txt
+# En WSL, nvidia-smi vive en /usr/lib/wsl/lib, que systemd no pone en el PATH; en Debian normal no existe y no estorba
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/lib/wsl/lib
 ExecStart=/usr/bin/python3 "@SERVIDOR@/vigilante.py"
 Restart=always
 RestartSec=5
