@@ -54,10 +54,27 @@ Set-Location '$Dir'
     'stop' {
         # Stop-ScheduledTask solo detiene el PowerShell de la tarea y regresa sin esperar: los hijos (python,
         # llama-server) siguen vivos y el log sigue abierto para el siguiente `start`. Se mata el árbol completo.
-        $procs = Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" |
-            Where-Object { $_.CommandLine -like "*$root\$Name.ps1*" }
+        $todos = Get-CimInstance Win32_Process
+        $raices = @($todos | Where-Object { $_.Name -eq 'powershell.exe' -and $_.CommandLine -like "*$root\$Name.ps1*" })
+        # Sin administrador, CommandLine de los procesos de sesión 0 llega vacío: no se ve la raíz y no se mata nada
+        if (-not $raices -and (Get-ScheduledTask $task -EA SilentlyContinue).State -eq 'Running') {
+            throw "$task corre pero no veo su proceso: repetir stop desde PowerShell de administrador"
+        }
+        $arbol = $raices
+        for ($i = 0; $i -lt $arbol.Count; $i++) {
+            $arbol += @($todos | Where-Object { $_.ParentProcessId -eq $arbol[$i].ProcessId })
+        }
         # Antes que Stop-ScheduledTask: con el padre muerto, taskkill /T ya no encuentra a los hijos
-        foreach ($p in $procs) { taskkill /T /F /PID $p.ProcessId 2>&1 | Out-Null }
+        # cmd junta stderr: en PowerShell 5.1, 2>&1 de un nativo con ErrorActionPreference Stop lanza excepción
+        $salida = foreach ($p in $raices) { cmd /c "taskkill /T /F /PID $($p.ProcessId) 2>&1" }
+        Start-Sleep 1
+        # Sin administrador, taskkill puede fallar con la tarea en sesión 0 (pasó con una -AtStartup) y el
+        # siguiente `start` choca con el proceso vivo: se verifica en vez de confiar en taskkill
+        $vivos = @($arbol | Where-Object { Get-Process -Id $_.ProcessId -EA SilentlyContinue })
+        if ($vivos) {
+            $salida | Write-Warning
+            throw "Siguen vivos ($($vivos.ProcessId -join ', ')). Desde PowerShell de administrador: taskkill /T /F /PID $($vivos[0].ProcessId), y repetir stop"
+        }
         Stop-ScheduledTask $task
         Unregister-ScheduledTask $task -Confirm:$false
         "Detenido $task"
