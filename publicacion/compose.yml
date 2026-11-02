@@ -13,7 +13,7 @@ services:
   cloudflared:
     image: cloudflare/cloudflared:2026.10.7
     restart: unless-stopped
-    command: tunnel --no-autoupdate run
+    command: tunnel --no-autoupdate --metrics 127.0.0.1:20241 run  # por defecto escucha en todas las interfaces
     env_file: ${HOME}/.config/cloudflared-tunel.env
     network_mode: host
     read_only: true
