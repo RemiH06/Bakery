@@ -1,0 +1,22 @@
+# Cloudflare Tunnel en el WSL de Pixilate (1.0s): publica a internet lo que de verdad es público.
+# Cloudflare termina el TLS y ve el tráfico; lo personal sigue en Tailscale.
+# Los hostnames y sus destinos se configuran en el panel de Cloudflare (túnel con token), no aquí.
+# Red del host: los destinos son puertos de loopback del WSL (p. ej. http://localhost:1865).
+#
+# El token va en ${HOME}/.config/cloudflared-tunel.env (600, nunca en el repo):
+#   TUNNEL_TOKEN=<token del túnel>
+#
+# Levantar: docker compose -f publicacion/compose.yml up -d
+# Apagar todo lo publicado: docker compose -f publicacion/compose.yml down
+
+services:
+  cloudflared:
+    image: cloudflare/cloudflared:2026.10.7
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    env_file: ${HOME}/.config/cloudflared-tunel.env
+    network_mode: host
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
