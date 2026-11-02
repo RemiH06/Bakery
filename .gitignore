@@ -1,5 +1,8 @@
 .vscode/
 
+# Secretos y configuración local (tokens, IDs de túnel): nunca al repo público
+.env
+
 # Notas locales de trabajo (contexto personal, no se publican)
 CLAUDE.md
 steps.md
