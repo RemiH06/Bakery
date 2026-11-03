@@ -15,7 +15,7 @@
 ██████╔╝██║  ██║██║  ██╗███████╗██║  ██║   ██║
 ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝   ╚═╝
 
-  Pi caliente de frutas todos los días, a todas horas
+  Pi de frutas
 
        by RemLam (@RemiH06)          version 1.0.0
 ```
@@ -23,11 +23,9 @@
 ![Maintained](https://img.shields.io/badge/Maintained%3F-yes-green.svg?style=for-the-badge)
 ![AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg?style=for-the-badge)
 
-## Bakery
-
 ### Descripción general
 
-**Bakery** es la infraestructura propia donde se hostean y corren los proyectos de [iroFactory](https://github.com/RemiH06/iroFactory): un clúster de Raspberry Pi 5 siempre encendido, más un escritorio con GPU (Pixilate, RTX 3060) que sirve modelos de lenguaje locales y se puede usar a distancia. El nombre viene de los "pays" (Pi's) que salen del horno.
+**Bakery** es la infraestructura propia donde se hostean y corren mis proyectos: un clúster de Raspberry Pi 5 siempre encendido, más un escritorio con GPU (Pixilate, RTX 3060) que sirve modelos de lenguaje locales y se puede usar a distancia. El nombre viene de los "pays" (Pi's) que salen del horno.
 
 Todo lo privado vive dentro de una red de Tailscale: nada abre puertos en el router y cada servicio escucha solo en `127.0.0.1` hasta que algo lo publica a propósito. Lo que sí es público sale por Cloudflare Tunnel bajo `remlam.dev`, empezando por [Mapo](https://mapo.remlam.dev).
 
