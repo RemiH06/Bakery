@@ -13,10 +13,10 @@ from pathlib import Path
 import httpx
 from pydantic import BaseModel, ValidationError
 
-from .schemas import Ficha, Resumen, clasificacion
+from .schemas import Ficha, RespuestaCitada, Resumen, clasificacion
 
 # Esquemas de una sola llamada que leen todos los archivos juntos
-UNA_LLAMADA: dict[str, type[BaseModel]] = {"resumen": Resumen, "ficha": Ficha}
+UNA_LLAMADA: dict[str, type[BaseModel]] = {"resumen": Resumen, "ficha": Ficha, "respuesta": RespuestaCitada}
 
 BAKERS: dict[str, dict] = tomllib.loads(files("bakers").joinpath("bakers.toml").read_text("utf-8"))
 LOG = Path.home() / ".bakers" / "log.jsonl"

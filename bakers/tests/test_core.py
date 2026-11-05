@@ -159,3 +159,7 @@ def test_resumen_log_agrupa_y_no_cuenta_fallos_en_tiempos(monkeypatch, tmp_path)
                     "seg_mediana": 30.0, "seg_p90": 30.0, "salida_tok_s": 10.0}
     assert reel["modelo"] == "sin respuesta" and reel["seg_mediana"] is None
     assert [f["llamadas"] for f in core.resumen_log("2026-10-28")] == [2, 1]
+
+
+def test_esquema_de_doll_trae_citas():
+    assert core.UNA_LLAMADA[core.BAKERS["doll"]["esquema"]].model_fields.keys() == {"citas", "no_encontrado", "respuesta"}

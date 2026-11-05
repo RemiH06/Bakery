@@ -12,6 +12,13 @@ class Resumen(BaseModel):
     )
 
 
+class RespuestaCitada(BaseModel):
+    # citas va primero: la gramática sigue este orden y el modelo copia la evidencia antes de redactar
+    citas: list[str] = Field(description="Verbatim passages copied from the fragments; empty if no_encontrado")
+    no_encontrado: bool = Field(description="True when the fragments do not contain the answer")
+    respuesta: str = Field(description="Short answer based only on the citas; empty if no_encontrado")
+
+
 class Dato(BaseModel):
     campo: str = Field(description="Attribute name, e.g. height, flowering season, native range")
     valor: str

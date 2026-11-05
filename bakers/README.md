@@ -21,6 +21,7 @@ Viven en [`src/bakers/bakers.toml`](src/bakers/bakers.toml). Agregar uno con un 
 | Baker | Devuelve |
 |---|---|
 | `resumidor` | `resumen`, `puntos`, `alertas` |
+| `doll` | `citas`, `no_encontrado`, `respuesta`, para el RAG de [Doll](https://github.com/RemiH06/Doll) |
 | `fichero` | ficha de especie desde varias fuentes: nombres, `descripcion`, `datos` y `ubicaciones_iteso` con fuente, `interacciones`, `contradicciones` (solo entre fuentes) y `faltantes` |
 | `clasificador` | cada línea no vacía en una de las categorías dadas, en lotes de 40: `conteo` y `por_categoria` (archivo → números de línea) |
 | `reel` | por cada reel o video corto: `tema`, `idea_central`, `recursos`, `citas`, `texto_en_pantalla`, `visual`, `afirmaciones` y la ruta de un borrador `nota.md` |
