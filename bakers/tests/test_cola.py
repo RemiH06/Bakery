@@ -227,3 +227,61 @@ def test_reintentar_analisis_vuelve_a_bajado(reloj):
     assert cola.reintentar("bloqueo")["reintentados"] == 0
     assert cola.reintentar("analisis")["reintentados"] == 1
     assert cola._leer()["items"]["AAA"]["estado"] == "bajado"
+
+
+def _bajados(monkeypatch, tmp_path, *codigos):
+    _descargas(monkeypatch, tmp_path, {})
+    cola.agregar(_enlaces(tmp_path, *(f"https://www.instagram.com/reel/{c}/" for c in codigos)))
+    cola.bajar()
+
+
+def test_analizar_corta_a_la_hora(monkeypatch, reloj, tmp_path):
+    ahora, _ = reloj
+    _bajados(monkeypatch, tmp_path, "AAA", "BBB")
+    monkeypatch.setattr(core, "estado", lambda: {"marcha": "alta"})
+
+    def reel_falso(fuentes, destino, modelo):
+        ahora[0] = ahora[0].replace(hour=8, minute=1)  # este lote cruza la hora de corte
+        return [{"fuente": f, "nota": "n.md"} for f in fuentes]
+
+    monkeypatch.setattr(reel, "reel", reel_falso)
+    ahora[0] = ahora[0].replace(hour=7, minute=59)
+    assert cola.analizar("notas", lote=1, hasta="08:00")["conteo"] == {"analizado": 1, "bajado": 1}
+    assert cola.analizar("notas", lote=1, hasta="08:00")["conteo"] == {"analizado": 1, "bajado": 1}  # ya pasó
+
+
+def test_analizar_sin_llama_swap_no_gasta_intentos(monkeypatch, reloj, tmp_path):
+    _bajados(monkeypatch, tmp_path, "AAA")
+    monkeypatch.setattr(core, "estado", lambda: {"marcha": "alta"})
+    esperas = []
+    monkeypatch.setattr(cola.time, "sleep", esperas.append)
+    respuestas = iter([[{"error": "Sin conexión con llama-swap en https://x: ReadTimeout"}],
+                       [{"error": "llama-swap respondió 502: bad gateway"}],
+                       [{"fuente": "v", "nota": "n.md"}]])
+    monkeypatch.setattr(reel, "reel", lambda *a: next(respuestas))
+    assert cola.analizar("notas")["conteo"] == {"analizado": 1}
+    assert esperas == [cola.ESPERA] * 2
+    assert "intentos_analisis" not in cola._leer()["items"]["AAA"]
+
+
+def test_analizar_se_rinde_tras_una_hora_caida(monkeypatch, reloj, tmp_path):
+    _bajados(monkeypatch, tmp_path, "AAA")
+
+    def caido():
+        raise BakerError("Sin respuesta de llama-swap en https://x: ConnectError")
+
+    monkeypatch.setattr(core, "estado", caido)
+    esperas = []
+    monkeypatch.setattr(cola.time, "sleep", esperas.append)
+    with pytest.raises(BakerError, match="1 h"):
+        cola.analizar("notas")
+    assert len(esperas) == cola.PACIENCIA
+    assert cola.estado()["conteo"] == {"bajado": 1}
+
+
+def test_un_solo_analizar_a_la_vez(reloj):
+    with cola._candado("analizar"):
+        with pytest.raises(BakerError, match="analizar. corriendo"):
+            cola.analizar("notas")
+        with cola._candado():  # no choca con `bajar`
+            pass

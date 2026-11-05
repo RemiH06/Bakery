@@ -1,6 +1,6 @@
 ﻿# Trabajos largos en Pixilate que sobreviven al cerrar SSH (OpenSSH en Windows mata los procesos de la sesión).
 # Corren como tarea programada S4U: sin sesión abierta, sin contraseña guardada, con acceso a la GPU.
-#   job.ps1 start <nombre> <carpeta> "<comando>" [-AtStartup]
+#   job.ps1 start <nombre> <carpeta> "<comando>" [-AtStartup | -Diario HH:mm]
 #   job.ps1 list
 #   job.ps1 log <nombre> [-Tail 100]
 #   job.ps1 stop <nombre>
@@ -11,7 +11,9 @@ param(
     [string]$Command,
     [int]$Tail = 40,
     # Además de lanzarlo ahora, lo vuelve a lanzar en cada arranque de Windows, sin sesión abierta
-    [switch]$AtStartup
+    [switch]$AtStartup,
+    # En vez de lanzarlo ahora, lo programa cada día a esta hora; si el equipo estaba apagado, corre al prender
+    [string]$Diario
 )
 $ErrorActionPreference = 'Stop'
 $root = "$HOME\bakery-jobs"
@@ -38,11 +40,16 @@ Set-Location '$Dir'
         # Sin límite de tiempo (el default corta a las 72 h) y prioridad normal (el default es baja).
         # En una laptop (Aerilate) el default tampoco arranca con batería y mata la tarea al desconectar el cargador
         $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -Priority 4 `
-            -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
-        $trigger = if ($AtStartup) { @{ Trigger = New-ScheduledTaskTrigger -AtStartup } } else { @{} }
+            -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
+        $trigger = if ($AtStartup) { @{ Trigger = New-ScheduledTaskTrigger -AtStartup } }
+        elseif ($Diario) { @{ Trigger = New-ScheduledTaskTrigger -Daily -At $Diario } }
+        else { @{} }
         Register-ScheduledTask -TaskName $task -Action $action -Principal $principal -Settings $settings @trigger -Force -ErrorAction Stop | Out-Null  # sin administrador da "Acceso denegado"; sin -ErrorAction seguía y arrancaba la tarea vieja
-        Start-ScheduledTask $task
-        "Lanzado $task. Log: $log"
+        if ($Diario) { "Programado $task a las $Diario. Log: $log" }
+        else {
+            Start-ScheduledTask $task
+            "Lanzado $task. Log: $log"
+        }
     }
     'list' {
         Get-ScheduledTask -TaskName 'bakery-*' -EA SilentlyContinue | ForEach-Object {

@@ -27,6 +27,8 @@ BLOQUEO = (7200, 10800)   # segundos tras un error de Instagram
 RED = 300                 # sin red (p. ej. al despertar de la suspensión): reintenta sin contar
 STRIKES = 3               # un enlace que da "bloqueo" 3 veces es privado o borrado, no la cuenta
 LOTE = 5                  # reels por llamada a `reel.reel` en `analizar`
+ESPERA = 300              # segundos antes de volver a mirar la marcha o a llama-swap en `analizar`
+PACIENCIA = 12            # esperas seguidas (1 h) con llama-swap caído antes de rendirse
 
 # yt-dlp no distingue "rate-limit" de "login required" en un post privado: por eso los STRIKES
 _BLOQUEO = ("http error 400", "http error 401", "http error 403", "http error 429", "rate-limit", "rate limit",
@@ -37,6 +39,8 @@ _BLOQUEO = ("http error 400", "http error 401", "http error 403", "http error 42
             "too many requests", "unauthorized", "forbidden", "authorizationerror")
 _RED = ("getaddrinfo", "timed out", "errno 11001", "connection reset", "connection refused",
         "connection aborted", "network is unreachable", "no route to host")
+# Fallas de la infraestructura, no del reel: desatendido, contarlas vaciaría la cola a fallidos en dos pasadas
+_CAIDA = ("sin conexión", "sin respuesta", "respondió 5", "ningún modelo cabe", "vram libre", "en el path")
 
 
 def _ahora() -> datetime:
@@ -76,10 +80,11 @@ def _cambiar(fn) -> dict:
 
 
 @contextmanager
-def _candado():
-    """Dos `bajar` a la vez duplicarían el ritmo contra Instagram. El candado se suelta solo si el proceso muere."""
+def _candado(cual: str = "bajar"):
+    """Dos `bajar` a la vez duplicarían el ritmo contra Instagram y dos `analizar` harían cada nota doble.
+    El candado se suelta solo si el proceso muere."""
     COLA.mkdir(parents=True, exist_ok=True)
-    f = open(COLA / "bajar.lock", "a+")
+    f = open(COLA / f"{cual}.lock", "a+")
     try:
         f.seek(0)
         if os.name == "nt":
@@ -90,7 +95,7 @@ def _candado():
             fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
         f.close()
-        raise BakerError("Ya hay un `baker cola bajar` corriendo") from None
+        raise BakerError(f"Ya hay un `baker cola {cual}` corriendo") from None
     try:
         yield
     finally:
@@ -254,44 +259,72 @@ def estado() -> dict:
             "proximo": e["pausa_hasta"], "motivo": e["motivo"], "fallidos": fallidos}
 
 
-def analizar(destino: str, lote: int = LOTE, modelo: str | None = None) -> dict:
+def _caida(error: str) -> bool:
+    bajo = error.lower()
+    return any(p in bajo for p in _CAIDA)
+
+
+def analizar(destino: str, lote: int = LOTE, modelo: str | None = None, hasta: str | None = None) -> dict:
     """Corre `reel` sobre lo ya bajado, en lotes, solo con la marcha `alta` (con un juego abierto la
     visión no cabe junto a él). Nunca descarga, de ningún sitio: le pasa a `reel` el video que dejó `bajar`;
-    si ya no está, el enlace vuelve a pendiente."""
-    while True:
-        e = _leer()
-        listos, videos = [], {}
-        for k, i in e["items"].items():
-            if i["estado"] != "bajado":
-                continue
-            video = Path(i["video"]) if i.get("video") else None
-            if not (video and video.exists()):  # una galería es carpeta
-                video = reel.bajado(reel.codigo(i["url"]))
-            if not video:  # se borró el material: que lo baje `bajar`
-                _cambiar(lambda e, k=k: e["items"][k].update(estado="pendiente"))
-                continue
-            listos.append(k)
-            videos[k] = str(video)
-        if not listos:
-            return estado()
-        marcha = core.estado()["marcha"]
-        if marcha != "alta":
-            print(f"[cola] marcha {marcha}: espero 5 min a que Pixilate se desocupe", flush=True)
-            time.sleep(300)
-            continue
-        claves = listos[:lote]
-        res = reel.reel([videos[k] for k in claves], destino, modelo)
+    si ya no está, el enlace vuelve a pendiente. `hasta` (HH:MM de hoy) corta entre lotes para correr en una
+    ventana; si esa hora ya pasó, no hace nada. Con llama-swap caído espera sin contar intentos."""
+    limite = None
+    if hasta:
+        limite = _ahora().replace(hour=int(hasta[:2]), minute=int(hasta[3:]), second=0, microsecond=0)
+    with _candado("analizar"):
+        caidas = 0
+        while True:
+            if limite and _ahora() >= limite:
+                print(f"[cola] son más de las {hasta}: sigue en la próxima ventana", flush=True)
+                return estado()
+            e = _leer()
+            listos, videos = [], {}
+            for k, i in e["items"].items():
+                if i["estado"] != "bajado":
+                    continue
+                video = Path(i["video"]) if i.get("video") else None
+                if not (video and video.exists()):  # una galería es carpeta
+                    video = reel.bajado(reel.codigo(i["url"]))
+                if not video:  # se borró el material: que lo baje `bajar`
+                    _cambiar(lambda e, k=k: e["items"][k].update(estado="pendiente"))
+                    continue
+                listos.append(k)
+                videos[k] = str(video)
+            if not listos:
+                return estado()
+            claves = listos[:lote]
+            try:
+                marcha = core.estado()["marcha"]
+                if marcha != "alta":
+                    print(f"[cola] marcha {marcha}: espero 5 min a que Pixilate se desocupe", flush=True)
+                    time.sleep(ESPERA)
+                    continue
+                res = reel.reel([videos[k] for k in claves], destino, modelo)
+            except BakerError as err:
+                if not _caida(str(err)):
+                    raise
+                res = [{"error": str(err)} for _ in claves]
 
-        def anotar(e: dict) -> None:
-            for k, r in zip(claves, res):
-                item = e["items"][k]
-                if "error" in r:
-                    item["intentos_analisis"] = item.get("intentos_analisis", 0) + 1
-                    item["error"] = r["error"][-300:]
-                    if item["intentos_analisis"] >= 2:  # un reel que hace ciclar a la visión no se reintenta siempre
-                        item["estado"] = "fallido"
-                else:
-                    item.update(estado="analizado", nota=r["nota"], error=None)
+            def anotar(e: dict) -> None:
+                for k, r in zip(claves, res):
+                    item = e["items"][k]
+                    if "error" not in r:
+                        item.update(estado="analizado", nota=r["nota"], error=None)
+                    elif not _caida(r["error"]):
+                        item["intentos_analisis"] = item.get("intentos_analisis", 0) + 1
+                        item["error"] = r["error"][-300:]
+                        if item["intentos_analisis"] >= 2:  # un reel que hace ciclar a la visión no se reintenta siempre
+                            item["estado"] = "fallido"
 
-        _cambiar(anotar)
-        print(f"[cola] analizados {sum('error' not in r for r in res)} de {len(res)}", flush=True)
+            _cambiar(anotar)
+            print(f"[cola] analizados {sum('error' not in r for r in res)} de {len(res)}", flush=True)
+            caida = next((r["error"] for r in res if "error" in r and _caida(r["error"])), None)
+            if caida is None:
+                caidas = 0
+                continue
+            caidas += 1
+            if caidas > PACIENCIA:
+                raise BakerError(f"llama-swap lleva 1 h sin responder: {caida}")
+            print(f"[cola] sin llama-swap, espero 5 min: {caida[-200:]}", flush=True)
+            time.sleep(ESPERA)

@@ -41,6 +41,7 @@ Cerrar SSH mata lo que se lanzó en la sesión. `job.ps1` (corre en Pixilate) lo
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\remote\windows\job.ps1 start <nombre> <carpeta> "<comando>"
+# -AtStartup: además al arrancar Windows · -Diario HH:mm: cada día a esa hora, sin lanzarlo ahora
 # list · log <nombre> -Tail 50 · stop <nombre>
 ```
 

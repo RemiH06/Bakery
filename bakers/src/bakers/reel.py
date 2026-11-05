@@ -1,6 +1,6 @@
 """Baker `reel`: un reel (o video corto) a nota de inspiración, con el formato de la skill `inspiracion`.
 
-Aerilate descarga y corta (yt-dlp, gallery-dl para fotos y carruseles, ffmpeg); Pixilate solo sirve modelos por llama-swap: whisper.cpp
+El gateway descarga y corta (yt-dlp, gallery-dl para fotos y carruseles, ffmpeg) donde corra; los modelos siempre van por llama-swap: whisper.cpp
 transcribe y Qwen con visión lee fotogramas, transcripción y caption en una sola llamada.
 Una pieza por enlace, a pedido de Remi: nada de rastrear cuentas, feeds ni guardados en bloque.
 """
@@ -34,7 +34,7 @@ LOGPROB_MIN = -1.0  # segmentos de whisper por debajo son alucinación (letra in
 
 def _correr(*args: str, cwd: Path | None = None) -> str:
     if not shutil.which(args[0]):
-        raise BakerError(f"Falta {args[0]} en el PATH de Aerilate")
+        raise BakerError(f"Falta {args[0]} en el PATH")
     r = subprocess.run(args, cwd=cwd, capture_output=True, text=True, encoding="utf-8", errors="replace")
     if r.returncode:
         raise BakerError(f"{args[0]} falló ({r.returncode}): {r.stderr.strip()[-500:]}")

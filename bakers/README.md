@@ -63,7 +63,7 @@ uv run baker cola agregar links.txt                # uno por renglón; quita el 
 uv run baker cola bajar                            # solo descarga; corre días seguidos
 uv run baker cola estado                           # bajados, pendientes, fallidos y próximo intento
 uv run baker cola reintentar [--tipo enlace|bloqueo|analisis]   # fallidos de vuelta a la cola, intentos en cero
-uv run baker cola analizar -d <carpeta de notas> [-m vision-abliterado]   # `reel` sobre lo ya bajado, de 5 en 5
+uv run baker cola analizar -d <carpeta de notas> [-m vision-abliterado] [--hasta 08:00]   # `reel` sobre lo ya bajado, de 5 en 5
 ```
 
 `agregar` ignora repetidos y lo que ya está en `~/.bakers/reels/`. `bajar` descarga uno a la vez con 1 a 4 min al azar entre descargas, de 9:00 a 22:59 y hasta 30 por día (`--tope`). Ante un error de Instagram (400, 401, 403, 429, login, checkpoint; de yt-dlp o de gallery-dl) para entre 2 y 3 h al azar y luego prueba primero un enlace que no haya fallado: si baja, la cuenta ya está libre. yt-dlp da el mismo mensaje para un post privado que para el límite de la cuenta, así que un enlace que falla así 3 veces queda como fallido. Un enlace borrado, demasiado largo o de un sitio que yt-dlp no entiende se marca y sigue; sin red (al despertar de la suspensión) espera 5 min sin contar intento. Todas las esperas se guardan como hora de reloj: matar el proceso o apagar la laptop no pierde nada, y al volver respeta la pausa que quedaba. Un candado impide dos `bajar` a la vez.
@@ -72,15 +72,17 @@ uv run baker cola analizar -d <carpeta de notas> [-m vision-abliterado]   # `ree
 
 `analizar` no descarga nunca, de ningún sitio: le pasa a `reel` el video (o la carpeta de la galería) que dejó `bajar`, con sus metadatos al lado, y si ya no está regresa el enlace a pendiente. `bajar` acepta cualquier enlace que entiendan yt-dlp (Instagram, TikTok, YouTube, Facebook) o gallery-dl (fotos y carruseles); lo que tiene DRM (Spotify) queda como fallido. `reintentar` regresa los fallidos: `enlace` y `bloqueo` a pendiente, `analisis` (bajados, pero la visión falló dos veces) a bajado; el tipo sale del último error guardado. Corre solo con la marcha `alta`; con otra espera 5 min y vuelve a mirar, porque con un juego abierto el grupo `reel` (~6 GB) no cabe. Un reel que falla dos veces el análisis queda como fallido. `analizar` termina cuando no queda nada bajado, así que se vuelve a correr conforme `bajar` avanza (de noche, por ejemplo); `-m` cambia el modelo de `bakers.toml` solo para esa corrida.
 
-**Días seguidos en Aerilate.** Tiene que correr ahí porque ahí están las cookies de Firefox. Con [`remote/windows/job.ps1`](../remote/windows/job.ps1) (tarea programada S4U: sigue con la terminal o VS Code cerrados y vuelve a arrancar con Windows), desde `bakers/` en una PowerShell **de administrador** (registrar una tarea S4U o de arranque lo pide; sin eso, `Register-ScheduledTask` da "Acceso denegado"). La tarea corre igual con la cuenta de Remi, no como administrador:
+**La cola vive en Pixilate** (desde el 2026-11-05; antes en Aerilate): siempre está prendida y ahí corren los modelos, así que la laptop puede dormir. Necesita Firefox con la sesión de Instagram iniciada (las cookies se leen del perfil aunque Firefox esté cerrado), `ffmpeg`, `yt-dlp` y `gallery-dl`. Dos tareas de [`remote/windows/job.ps1`](../remote/windows/job.ps1), registradas desde PowerShell de administrador o por SSH con una cuenta de administrador (S4U lo pide):
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File ..\remote\windows\job.ps1 start cola . "uv run baker cola bajar" -AtStartup
+powershell -NoProfile -ExecutionPolicy Bypass -File ..\remote\windows\job.ps1 start analizar . "<script local>" -Diario 03:00
 powershell -NoProfile -ExecutionPolicy Bypass -File ..\remote\windows\job.ps1 log cola
-powershell -NoProfile -ExecutionPolicy Bypass -File ..\remote\windows\job.ps1 stop cola
 ```
 
-Las tareas pueden arrancar y seguir con batería. Al suspender la laptop el proceso se congela, no muere; al despertar, la espera sigue por reloj, así que si la pausa ya venció descarga enseguida, y si la red tarda en volver espera los 5 min de "sin red". No hay `WakeToRun`: la laptop no se despierta sola para bajar. Si Firefox pierde la sesión de Instagram, todo cuenta como bloqueo; `cola estado` lo muestra en `motivo` y `fallidos`.
+`bajar` corre de 9:00 a 22:59 y `analizar` de 3:00 a 8:00: `--hasta` corta entre lotes y, si la hora ya pasó, no hace nada, así que una corrida atrasada tras un apagón no se come el día. Conviene `--lote 1`: si abres un juego, la visión suelta la GPU al terminar el reel en curso. Con llama-swap caído, `analizar` espera sin gastar intentos del reel y se rinde tras 1 h; la siguiente noche retoma. Un candado impide dos `analizar` a la vez.
+
+La tarea diaria necesita `BAKERS_URL` (`http://127.0.0.1:8090`) y `BAKERS_API_KEY`, y las notas van a un clon parcial de la bóveda con una llave de despliegue que solo sirve para ese repo; el script que hace eso vive en `~\bakers\` de Pixilate, fuera de este repo porque nombra la bóveda. Para leer las notas desde otra máquina, `git pull` en la bóveda.
 
 `whisper` y `vision` forman el grupo `reel` de llama-swap: se cargan juntos (~6 GB) y sacan a `bonsai` mientras dure el lote. No pasan por las marchas; con la marcha `ninguna` el gateway se niega antes de bajar nada.
 

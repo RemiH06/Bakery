@@ -26,6 +26,7 @@ def main() -> None:
     ca.add_argument("-d", "--destino", required=True, help="carpeta de notas del proyecto")
     ca.add_argument("--lote", type=int, default=cola.LOTE)
     ca.add_argument("-m", "--modelo", help="cambia el de bakers.toml, p. ej. vision-abliterado")
+    ca.add_argument("--hasta", help="HH:MM de hoy: corta ahí, para correr en una ventana")
     cs.add_parser("estado", help="bajados, pendientes, fallidos y próximo intento")
     cs.add_parser("reintentar", help="regresa los fallidos a la cola").add_argument(
         "--tipo", choices=("enlace", "bloqueo", "analisis"), help="solo los de este error (por defecto, todos)")
@@ -49,7 +50,7 @@ def main() -> None:
             res = reel.reel(a.fuentes, a.destino)
         elif a.cmd == "cola":
             res = {"agregar": lambda: cola.agregar(a.archivo), "bajar": lambda: cola.bajar(a.tope),
-                   "analizar": lambda: cola.analizar(a.destino, a.lote, a.modelo), "estado": cola.estado,
+                   "analizar": lambda: cola.analizar(a.destino, a.lote, a.modelo, a.hasta), "estado": cola.estado,
                    "reintentar": lambda: cola.reintentar(a.tipo)}[a.accion]()
         elif a.cmd == "chat":
             if a.accion == "hablar":
