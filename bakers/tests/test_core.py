@@ -48,6 +48,17 @@ def test_resumen_valida_y_registra(llama, tmp_path):
         "ok": True, "error": None, "modelo": "bonsai", "entrada": 100, "salida": 10, "intentos": 1}
 
 
+def test_fuera_de_esquema_no_guarda_salida_del_modelo(llama, tmp_path):
+    cola, _ = llama
+    archivo = tmp_path / "a.txt"
+    archivo.write_text("x", encoding="utf-8")
+    cola.extend([{"resumen": "secreto uno", "puntos": "secreto dos"}] * 2)
+
+    with pytest.raises(core.BakerError, match="puntos: list_type"):
+        core.bake("resumidor", "t", [str(archivo)])
+    assert "secreto" not in json.dumps(log(tmp_path))
+
+
 def test_reintenta_una_vez_y_luego_falla(llama, tmp_path):
     cola, _ = llama
     archivo = tmp_path / "a.txt"

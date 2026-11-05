@@ -107,7 +107,11 @@ def _llamar(c: httpx.Client, cfg: dict, mensaje: str | list[dict], esquema: type
             obj = esquema.model_validate_json(datos["choices"][0]["message"]["content"])
             revisar(obj)
             return obj
-        except (ValidationError, ValueError) as e:
+        except ValidationError as e:
+            # Campo y tipo de error, sin `str(e)`: trae pedazos de la salida del modelo y este mensaje va al log.
+            error = "; ".join(f"{'.'.join(map(str, d['loc']))}: {d['type']}"
+                              for d in e.errors(include_url=False, include_context=False, include_input=False))
+        except ValueError as e:
             error = e
     raise BakerError(f"Respuesta fuera de esquema tras {INTENTOS} intentos: {error}")
 
