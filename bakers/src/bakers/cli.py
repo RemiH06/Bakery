@@ -3,7 +3,7 @@ import argparse
 import json
 import sys
 
-from . import chat, cola, core, reel
+from . import chat, clases, cola, core, reel
 
 
 def main() -> None:
@@ -22,11 +22,15 @@ def main() -> None:
     cs.add_parser("agregar", help="enlaces de un archivo, uno por renglón").add_argument("archivo")
     cs.add_parser("bajar", help="solo descarga, días seguidos").add_argument(
         "--tope", type=int, default=cola.TOPE, help=f"descargas por día (por defecto {cola.TOPE})")
-    ca = cs.add_parser("analizar", help="corre `reel` sobre lo ya bajado, sin tocar Instagram")
-    ca.add_argument("-d", "--destino", required=True, help="carpeta de notas del proyecto")
+    ca = cs.add_parser("analizar", help="`reel` sobre lo ya bajado y clase a cada pieza, sin tocar Instagram")
+    ca.add_argument("-d", "--destino", required=True, help="carpeta de notas (con la nota de clases)")
     ca.add_argument("--lote", type=int, default=cola.LOTE)
     ca.add_argument("-m", "--modelo", help="cambia el de bakers.toml, p. ej. vision-abliterado")
-    ca.add_argument("--hasta", help="HH:MM de hoy: corta ahí, para correr en una ventana")
+    ca.add_argument("--min-libre", type=float, default=cola.MIN_LIBRE, help="GB libres para correr")
+    ca.add_argument("--clases", help=f"nota de clases (por defecto, {clases.NOTA_CLASES} del destino)")
+    cr = cs.add_parser("reclasificar", help="clase y plantilla para las notas que no tienen clase")
+    cr.add_argument("-d", "--destino", required=True, help="carpeta de notas")
+    cr.add_argument("--clases", help=f"nota de clases (por defecto, {clases.NOTA_CLASES} del destino)")
     cs.add_parser("estado", help="bajados, pendientes, fallidos y próximo intento")
     cs.add_parser("reintentar", help="regresa los fallidos a la cola").add_argument(
         "--tipo", choices=("enlace", "bloqueo", "analisis"), help="solo los de este error (por defecto, todos)")
@@ -50,7 +54,8 @@ def main() -> None:
             res = reel.reel(a.fuentes, a.destino)
         elif a.cmd == "cola":
             res = {"agregar": lambda: cola.agregar(a.archivo), "bajar": lambda: cola.bajar(a.tope),
-                   "analizar": lambda: cola.analizar(a.destino, a.lote, a.modelo, a.hasta), "estado": cola.estado,
+                   "analizar": lambda: cola.analizar(a.destino, a.lote, a.modelo, a.min_libre, a.clases),
+                   "reclasificar": lambda: cola.reclasificar(a.destino, a.clases), "estado": cola.estado,
                    "reintentar": lambda: cola.reintentar(a.tipo)}[a.accion]()
         elif a.cmd == "chat":
             if a.accion == "hablar":

@@ -13,13 +13,14 @@ import subprocess
 import time
 import unicodedata
 from datetime import date
+from importlib.resources import files
 from pathlib import Path
 
 import httpx
 
 from . import core
 from .core import BakerError
-from .schemas import Reel
+from .schemas import REEL_PARTES, Reel
 
 CARPETA = Path.home() / ".bakers" / "reels"  # fuera de cualquier repo: es material de otra persona
 MAX_SEGUNDOS = 600  # reels y shorts; un video largo va por la skill `inspiracion` a mano
@@ -30,6 +31,8 @@ VIDEOS = (".mp4", ".mov", ".webm")  # un carrusel de Instagram puede mezclar vid
 # yt-dlp con un post de fotos de Instagram o TikTok; ahí entra gallery-dl
 SIN_VIDEO = ("No video formats found", "Unsupported URL")
 LOGPROB_MIN = -1.0  # segmentos de whisper por debajo son alucinación (letra inventada sobre música)
+PLANTILLAS = files("bakers").joinpath("plantillas")
+_HUECO = re.compile(r"\{(\w+)\}")
 
 
 def _correr(*args: str, cwd: Path | None = None) -> str:
@@ -180,6 +183,11 @@ def _transcribir(c: httpx.Client, cfg: dict, video: Path, trabajo: Path) -> list
     segmentos = [{"t": _mmss(s["start"]), "texto": s["text"].strip(), "logprob": round(s.get("avg_logprob", 0), 2)}
                  for s in r.json().get("segments", [])]
     (trabajo / "transcripcion.json").write_text(json.dumps(segmentos, ensure_ascii=False, indent=1), "utf-8")
+    return limpiar(segmentos)
+
+
+def limpiar(segmentos: list[dict]) -> list[dict]:
+    """Segmentos de `transcripcion.json` sin alucinaciones ni repeticiones."""
     # Sin VAD, whisper.cpp inventa letra sobre la música (logprob de -3 a -9) y eso mandó a la visión a un bucle
     # (2026-10-27); -1 es el umbral de Whisper. También repite "*crickets*" en silencios: una vez basta.
     limpios = []
@@ -226,19 +234,52 @@ def _slug(texto: str) -> str:
     return slug if len(slug) <= 50 else slug[:51].rsplit("-", 1)[0]  # corta entre palabras
 
 
-def _nota(r: Reel, meta: dict, fuente: str, formato: str, trabajo: Path) -> str:
-    """Borrador con el formato de `inspiracion`; verificar recursos y escribir la Aplicación queda a Claude."""
+def _bloques(r: Reel, meta: dict, fuente: str, formato: str, trabajo: Path, segmentos: list[dict]) -> dict:
+    """Las secciones de la nota ya en Markdown; cada plantilla de clase usa las que le tocan."""
     material = f"~/{trabajo.relative_to(Path.home()).as_posix()}/" if trabajo.is_relative_to(Path.home()) else trabajo
-    lineas = [f"# {r.tema}", "", f"- Fuente: @{_cuenta(meta)}, {meta.get('webpage_url') or fuente}",
-              f"- Formato: {formato}", f"- Visto: {date.today():%Y-%m-%d}",
-              f"- Material (video, transcripción, fotogramas): `{material}`", "", "## Idea central", r.idea_central, "", "## Recursos",
-              "| Recurso | Qué es | Dónde | Verificado |", "|---|---|---|---|",
-              *(f"| {x.nombre} | {x.que_es} | {x.donde} | no |" for x in r.recursos), "", "## Citas",
-              *(f'- [{x.t}] "{x.texto}"' for x in r.citas), "", "## Texto en pantalla",
-              *(f"- {x}" for x in r.texto_en_pantalla), "", "## Visual", r.visual]
-    if r.afirmaciones:
-        lineas += ["", "## Afirmaciones por verificar", *(f"- {x}" for x in r.afirmaciones)]
-    return "\n".join(lineas) + "\n\n## Aplicación\n- (pendiente)\n"
+    tabla = ["| Recurso | Qué es | Dónde | Verificado |", "|---|---|---|---|",
+             *(f"| {x.nombre} | {x.que_es} | {x.donde} | no |" for x in r.recursos)]
+    return {"tema": r.tema, "fuente": f"@{_cuenta(meta)}, {meta.get('webpage_url') or fuente}", "formato": formato,
+            "visto": f"{date.today():%Y-%m-%d}", "material": str(material), "idea_central": r.idea_central,
+            "recursos": "\n".join(tabla) if r.recursos else "",
+            "citas": "\n".join(f'- [{x.t}] "{x.texto}"' for x in r.citas),
+            "texto_en_pantalla": "\n".join(f"- {x}" for x in r.texto_en_pantalla), "visual": r.visual,
+            "afirmaciones": "\n".join(f"- {x}" for x in r.afirmaciones),
+            "pasos": "\n".join(f"{k}. {x}" for k, x in enumerate(r.pasos, 1)),
+            "transcripcion": "\n".join(f"- [{s['t']}] {s['texto']}" for s in segmentos)}
+
+
+def plantilla(nombre: str, bloques: dict) -> str:
+    """Llena `plantillas/<nombre>.md`. La plantilla dice qué guarda la clase y cada pieza llena lo que trae: un
+    renglón con todos sus huecos vacíos se quita, y una sección `##` cuyos huecos quedaron todos vacíos también,
+    con todo y su texto fijo. `extra` (secciones de una nota vieja que la plantilla no tiene) va al final."""
+    partes = []
+    for seccion in re.split(r"(?m)^(?=## )", PLANTILLAS.joinpath(f"{nombre}.md").read_text("utf-8")):
+        renglones, huecos_seccion, llenos = [], False, False
+        for linea in seccion.splitlines():
+            huecos = _HUECO.findall(linea)
+            huecos_seccion |= bool(huecos)
+            if huecos and not any(bloques.get(h) for h in huecos):
+                continue
+            llenos |= bool(huecos)
+            renglones.append(_HUECO.sub(lambda m: str(bloques.get(m[1]) or ""), linea))
+        if not (seccion.startswith("## ") and huecos_seccion and not llenos):
+            partes.append("\n".join(renglones))
+    partes.append(bloques.get("extra") or "")
+    return re.sub(r"\n{3,}", "\n\n", "\n\n".join(partes)).strip() + "\n"
+
+
+def _vision(c: httpx.Client, cfg: dict, mensaje: list[dict], uso: dict) -> Reel:
+    """Con el esquema completo y, si se cicla, partido en dos llamadas con su propio tope cada una."""
+    try:
+        return core._llamar(c, cfg, mensaje, Reel, uso)
+    except BakerError as e:
+        if "(bucle)" not in str(e):
+            raise
+    datos = {}
+    for parte in REEL_PARTES:
+        datos |= core._llamar(c, cfg, mensaje, parte, uso).model_dump()
+    return Reel(**datos)
 
 
 def _uno(c: httpx.Client, cfg: dict, fuente: str, destino: Path | None) -> dict:
@@ -267,12 +308,16 @@ def _uno(c: httpx.Client, cfg: dict, fuente: str, destino: Path | None) -> dict:
             tomas = _fotogramas(video, trabajo, duracion)
             formato, cabecera = f"reel, {_mmss(duracion)}", f"Duration: {_mmss(duracion)}"
         marca("fotogramas")
-        r = core._llamar(c, cfg, _mensaje(meta, cabecera, segmentos, tomas), Reel, uso)
+        r = _vision(c, cfg, _mensaje(meta, cabecera, segmentos, tomas), uso)
         marca("vision")
         r.texto_en_pantalla = _sin_subtitulos(r.texto_en_pantalla, segmentos)
         if not segmentos:  # sin habla, la visión copia el texto de las diapositivas como citas (2026-10-29)
             r.citas = []
-        texto = _nota(r, meta, fuente, formato, trabajo)
+        bloques = _bloques(r, meta, fuente, formato, trabajo, segmentos)
+        # Para escribir la nota otra vez con la plantilla de su clase (`clases.py`) sin volver a la visión
+        (trabajo / "reel.json").write_text(json.dumps({"cuenta": _cuenta(meta), "bloques": bloques},
+                                                      ensure_ascii=False, indent=1), "utf-8")
+        texto = plantilla("general", bloques)
         (trabajo / "nota.md").write_text(texto, "utf-8")
         # La nota va al proyecto que la pidió; lo pesado (video, audio, fotogramas) se queda en CARPETA
         nota = trabajo / "nota.md" if destino is None else             destino / f"{date.today():%Y-%m-%d}-{_slug(_cuenta(meta))}-{_slug(r.tema)}.md"

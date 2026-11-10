@@ -1,4 +1,6 @@
 from datetime import datetime, timedelta, timezone
+from itertools import chain, repeat
+from pathlib import Path
 
 import pytest
 
@@ -18,6 +20,7 @@ def reloj(monkeypatch, tmp_path):
     monkeypatch.setattr(cola, "ERRORES", tmp_path / "cola" / "errores.jsonl")
     monkeypatch.setattr(reel, "CARPETA", tmp_path / "reels")
     monkeypatch.setattr(cola, "_ahora", lambda: ahora[0])
+    monkeypatch.setattr(cola, "_libre_gb", lambda: 100.0)
 
     def dormir(t):
         dormidas.append((t - ahora[0]).total_seconds())
@@ -160,30 +163,6 @@ def test_un_solo_bajar_a_la_vez(reloj):
                 pass
 
 
-def test_analizar_espera_marcha_y_no_baja(monkeypatch, reloj, tmp_path):
-    _descargas(monkeypatch, tmp_path, {})
-    cola.agregar(_enlaces(tmp_path, *(f"https://www.instagram.com/reel/{c}/" for c in ("AAA", "BBB", "CCC"))))
-    cola.bajar()
-    marchas = iter(["media", "alta", "alta"])
-    monkeypatch.setattr(core, "estado", lambda: {"marcha": next(marchas)})
-    esperas = []
-    monkeypatch.setattr(cola.time, "sleep", esperas.append)
-    lotes = []
-
-    def reel_falso(fuentes, destino, modelo):
-        assert modelo == "vision-abliterado"
-        lotes.append(fuentes)
-        return [{"fuente": f, "error": "bucle"} if "BBB" in f else {"fuente": f, "nota": f"{destino}/x.md"}
-                for f in fuentes]
-
-    monkeypatch.setattr(reel, "reel", reel_falso)
-    monkeypatch.setattr(reel, "_obtener", lambda *a: pytest.fail("analizar no debe descargar"))
-    res = cola.analizar(str(tmp_path / "notas"), lote=2, modelo="vision-abliterado")
-    assert esperas == [300]
-    assert lotes[0] == [str(tmp_path / "reels" / c / "video.mp4") for c in ("AAA", "BBB")]  # el video, no el enlace
-    assert res["conteo"] == {"analizado": 2, "fallido": 1}  # BBB falló dos veces
-
-
 def test_otras_fuentes_se_bajan_una_vez(monkeypatch, reloj, tmp_path):
     """Un enlace que no es de Instagram lo baja `bajar` y `analizar` usa ese video sin volver a yt-dlp."""
     llamadas = _descargas(monkeypatch, tmp_path, {})
@@ -194,7 +173,7 @@ def test_otras_fuentes_se_bajan_una_vez(monkeypatch, reloj, tmp_path):
     monkeypatch.setattr(reel, "reel", lambda fuentes, destino, modelo: lotes.append(fuentes) or
                         [{"fuente": f, "nota": "n.md"} for f in fuentes])
     monkeypatch.setattr(reel, "_obtener", lambda *a: pytest.fail("analizar no debe descargar"))
-    assert cola.analizar(str(tmp_path / "notas"))["conteo"] == {"analizado": 1}
+    assert cola.analizar(str(tmp_path / "notas"))["conteo"] == {"clasificar": 1}  # sin nota de clases, espera
     assert llamadas == ["123"] and lotes == [[str(tmp_path / "reels" / "123" / "video.mp4")]]
 
 
@@ -235,48 +214,48 @@ def _bajados(monkeypatch, tmp_path, *codigos):
     cola.bajar()
 
 
-def test_analizar_corta_a_la_hora(monkeypatch, reloj, tmp_path):
-    ahora, _ = reloj
-    _bajados(monkeypatch, tmp_path, "AAA", "BBB")
-    monkeypatch.setattr(core, "estado", lambda: {"marcha": "alta"})
+def test_analizar_sin_piezas_no_pregunta_nada(monkeypatch, reloj):
+    monkeypatch.setattr(core, "estado", lambda: pytest.fail("sin piezas no hace falta llama-swap"))
+    assert cola.analizar("notas")["conteo"] == {}
+
+
+def test_analizar_solo_con_marcha_alta_y_disco(monkeypatch, reloj, tmp_path):
+    _bajados(monkeypatch, tmp_path, "AAA", "BBB", "CCC")
+    marchas = chain(["media"], repeat("alta"))
+    monkeypatch.setattr(core, "estado", lambda: {"marcha": next(marchas)})
+    lotes = []
 
     def reel_falso(fuentes, destino, modelo):
-        ahora[0] = ahora[0].replace(hour=8, minute=1)  # este lote cruza la hora de corte
-        return [{"fuente": f, "nota": "n.md"} for f in fuentes]
+        assert destino is None and modelo == "vision-abliterado"  # la nota final la escribe la clase
+        lotes.append(fuentes)
+        return [{"fuente": f, "error": "bucle"} if "BBB" in f else {"fuente": f, "nota": f"{Path(f).parent}/nota.md"}
+                for f in fuentes]
 
     monkeypatch.setattr(reel, "reel", reel_falso)
-    ahora[0] = ahora[0].replace(hour=7, minute=59)
-    assert cola.analizar("notas", lote=1, hasta="08:00")["conteo"] == {"analizado": 1, "bajado": 1}
-    assert cola.analizar("notas", lote=1, hasta="08:00")["conteo"] == {"analizado": 1, "bajado": 1}  # ya pasó
+    monkeypatch.setattr(reel, "_obtener", lambda *a: pytest.fail("analizar no debe descargar"))
+    assert cola.analizar("notas", modelo="vision-abliterado")["conteo"] == {"bajado": 3}  # marcha media: sale
+    assert lotes == []
+    monkeypatch.setattr(cola, "_libre_gb", lambda: 12.0)
+    assert cola.analizar("notas")["conteo"] == {"bajado": 3}  # poco disco: sale
+    monkeypatch.setattr(cola, "_libre_gb", lambda: 100.0)
+    res = cola.analizar(str(tmp_path / "notas"), modelo="vision-abliterado")
+    assert lotes[0] == [str(tmp_path / "reels" / "AAA" / "video.mp4")]  # el video, no el enlace; de uno en uno
+    assert res["conteo"] == {"clasificar": 2, "fallido": 1}  # BBB falló dos veces; sin nota de clases, esperan
+    assert cola._leer()["items"]["AAA"]["material"] == str(tmp_path / "reels" / "AAA")
 
 
-def test_analizar_sin_llama_swap_no_gasta_intentos(monkeypatch, reloj, tmp_path):
+def test_analizar_sin_llama_swap_sale_sin_gastar_intentos(monkeypatch, reloj, tmp_path):
     _bajados(monkeypatch, tmp_path, "AAA")
     monkeypatch.setattr(core, "estado", lambda: {"marcha": "alta"})
-    esperas = []
-    monkeypatch.setattr(cola.time, "sleep", esperas.append)
-    respuestas = iter([[{"error": "Sin conexión con llama-swap en https://x: ReadTimeout"}],
-                       [{"error": "llama-swap respondió 502: bad gateway"}],
-                       [{"fuente": "v", "nota": "n.md"}]])
-    monkeypatch.setattr(reel, "reel", lambda *a: next(respuestas))
-    assert cola.analizar("notas")["conteo"] == {"analizado": 1}
-    assert esperas == [cola.ESPERA] * 2
+    monkeypatch.setattr(reel, "reel", lambda *a: [{"error": "llama-swap respondió 502: bad gateway"}])
+    assert cola.analizar("notas")["conteo"] == {"bajado": 1}
     assert "intentos_analisis" not in cola._leer()["items"]["AAA"]
-
-
-def test_analizar_se_rinde_tras_una_hora_caida(monkeypatch, reloj, tmp_path):
-    _bajados(monkeypatch, tmp_path, "AAA")
 
     def caido():
         raise BakerError("Sin respuesta de llama-swap en https://x: ConnectError")
 
     monkeypatch.setattr(core, "estado", caido)
-    esperas = []
-    monkeypatch.setattr(cola.time, "sleep", esperas.append)
-    with pytest.raises(BakerError, match="1 h"):
-        cola.analizar("notas")
-    assert len(esperas) == cola.PACIENCIA
-    assert cola.estado()["conteo"] == {"bajado": 1}
+    assert cola.analizar("notas")["conteo"] == {"bajado": 1}
 
 
 def test_un_solo_analizar_a_la_vez(reloj):

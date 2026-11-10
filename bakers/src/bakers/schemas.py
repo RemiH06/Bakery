@@ -91,6 +91,19 @@ class Reel(BaseModel):
         description="Only bold claims that could be false or exaggerated (numbers, speed, 'free', 'nobody tells "
                     "you', star counts); not descriptions of what the video shows. Empty if none"
     )
+    pasos: list[str] = Field(
+        description="Ordered steps of a tutorial, recipe or workout shown in the video, one per item, with the "
+                    "product, tool, sets and reps it names. Empty if it is not a step by step piece"
+    )
+
+
+def _parte(nombre: str, campos: tuple[str, ...]) -> type[BaseModel]:
+    return create_model(nombre, **{k: (f.annotation, f) for k, f in Reel.model_fields.items() if k in campos})
+
+
+# Si la visión se cicla con el esquema completo, cada mitad va en su propia llamada con su propio tope de salida
+REEL_PARTES = (_parte("ReelHabla", ("tema", "idea_central", "recursos", "citas", "afirmaciones")),
+               _parte("ReelVista", ("texto_en_pantalla", "visual", "pasos")))
 
 
 def clasificacion(categorias: list[str]) -> type[BaseModel]:

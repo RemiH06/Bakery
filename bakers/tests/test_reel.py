@@ -12,7 +12,7 @@ pytestmark = pytest.mark.skipif(not shutil.which("ffmpeg"), reason="pide ffmpeg"
 
 NOTA = {"tema": "Prueba", "idea_central": "Un tono y barras de color.", "recursos": [
     {"nombre": "ffmpeg", "que_es": "genera el video", "donde": "pantalla"}],
-    "citas": [{"t": "00:01", "texto": "hola"}], "texto_en_pantalla": [], "visual": "Barras.", "afirmaciones": []}
+    "citas": [{"t": "00:01", "texto": "hola"}], "texto_en_pantalla": [], "visual": "Barras.", "afirmaciones": [], "pasos": []}
 
 
 def test_video_local_a_nota(monkeypatch, tmp_path):
@@ -52,6 +52,9 @@ def test_video_local_a_nota(monkeypatch, tmp_path):
     nota = Path(res["nota"]).read_text("utf-8")
     assert nota == (tmp_path / "reels" / "prueba" / "nota.md").read_text("utf-8")
     assert '- [00:01] "hola"' in nota and "| ffmpeg | genera el video | pantalla | no |" in nota
+    assert "## Texto en pantalla" not in nota  # sección vacía: fuera
+    guardado = json.loads((tmp_path / "reels" / "prueba" / "reel.json").read_text("utf-8"))
+    assert guardado["cuenta"] == "local" and guardado["bloques"]["transcripcion"] == "- [00:01] hola"
     assert rutas[-1] == "/v1/chat/completions"
     linea = json.loads((tmp_path / "log.jsonl").read_text("utf-8"))
     assert linea["entrada"] == 900 and set(linea["pasos"]) == {"descarga", "whisper", "fotogramas", "vision"}
@@ -145,3 +148,27 @@ def test_carrusel_a_nota_sin_whisper(monkeypatch, tmp_path):
     nota = Path(res["nota"]).read_text("utf-8")
     assert Path(res["nota"]) == carpeta / "nota.md" and "- Formato: carrusel, 10 piezas" in nota
     assert res["citas"] == [] and res["transcripcion"] is None  # sin habla no hay citas
+
+
+def test_vision_ciclada_se_parte_en_dos(monkeypatch, tmp_path):
+    """Con el tope de salida lleno (bucle), cada mitad del esquema va en su propia llamada."""
+    imagen = tmp_path / "01.jpg"
+    imagen.write_bytes(b"x")
+    esquemas = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        esquema = json.loads(req.content)["response_format"]["json_schema"]["name"]
+        esquemas.append(esquema)
+        if esquema == "Reel":
+            return httpx.Response(200, json={"model": "vision", "usage": {"prompt_tokens": 9, "completion_tokens": 4096},
+                                             "choices": [{"message": {"content": "{"}, "finish_reason": "length"}]})
+        campos = json.loads(req.content)["response_format"]["json_schema"]["schema"]["properties"]
+        return httpx.Response(200, json={"model": "vision", "usage": {"prompt_tokens": 9, "completion_tokens": 9},
+                                         "choices": [{"message": {"content": json.dumps(
+                                             {k: v for k, v in NOTA.items() if k in campos})}}]})
+
+    uso = {"modelo": None, "entrada": 0, "salida": 0, "intentos": 0}
+    with httpx.Client(base_url="http://pixilate", transport=httpx.MockTransport(handler)) as c:
+        r = reel._vision(c, core.BAKERS["reel"], reel._mensaje({}, "Duration: 00:07", [], [("00:01", imagen)]), uso)
+    assert esquemas == ["Reel", "ReelHabla", "ReelVista"]
+    assert r.tema == "Prueba" and r.visual == "Barras." and uso["intentos"] == 3
