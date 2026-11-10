@@ -16,7 +16,8 @@ param(
     [string]$Diario,
     # En vez de lanzarlo ahora, lo programa cada tantos minutos; si la vuelta anterior sigue corriendo, se salta
     [int]$Cada,
-    # Prioridad debajo de lo normal (7): para trabajos de fondo que no deben estorbar a lo que se usa en persona
+    # La prioridad más baja (10, clase inactiva, que heredan los procesos hijos): para trabajos de fondo que solo
+    # usan el CPU que nadie más pide
     [switch]$Baja
 )
 $ErrorActionPreference = 'Stop'
@@ -43,7 +44,7 @@ Set-Location '$Dir'
         $principal = New-ScheduledTaskPrincipal -UserId "$env:COMPUTERNAME\$env:USERNAME" -LogonType S4U
         # Sin límite de tiempo (el default corta a las 72 h) y prioridad normal (el default es baja).
         # En una laptop (Aerilate) el default tampoco arranca con batería y mata la tarea al desconectar el cargador
-        $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -Priority $(if ($Baja) { 7 } else { 4 }) `
+        $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -Priority $(if ($Baja) { 10 } else { 4 }) `
             -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
         $trigger = if ($AtStartup) { @{ Trigger = New-ScheduledTaskTrigger -AtStartup } }
         elseif ($Diario) { @{ Trigger = New-ScheduledTaskTrigger -Daily -At $Diario } }

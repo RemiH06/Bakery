@@ -80,11 +80,11 @@ uv run baker cola reclasificar -d <carpeta de notas>   # clase y plantilla para 
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File ..\remote\windows\job.ps1 start cola . "uv run baker cola bajar" -AtStartup
-powershell -NoProfile -ExecutionPolicy Bypass -File ..\remote\windows\job.ps1 start analizar . "<script local>" -Cada 30 -Baja
+powershell -NoProfile -ExecutionPolicy Bypass -File ..\remote\windows\job.ps1 start analizar . "<script local>" -Cada 10 -Baja
 powershell -NoProfile -ExecutionPolicy Bypass -File ..\remote\windows\job.ps1 log cola
 ```
 
-`bajar` corre de 9:00 a 22:59. `analizar` se despierta cada 30 min con prioridad debajo de lo normal (`-Baja`) y corre solo si toca; si la vuelta anterior sigue corriendo, el programador se salta la nueva, y un candado impide dos `analizar` a la vez.
+`bajar` corre de 9:00 a 22:59. `analizar` se despierta cada 10 min, todo el día, con la prioridad más baja (`-Baja`: clase inactiva, que heredan uv, Python y ffmpeg, así que solo usa el CPU que nadie más pide) y corre solo si toca. Lo que lo pausa es lo de arriba: un juego o cualquier programa que ocupe la GPU baja la marcha y lo corta a media pieza; al despejarse, la siguiente vuelta retoma, a lo más 10 min después. El script local revisa `cola.json` antes de tocar git, así que una vuelta sin piezas no cuesta nada; si la vuelta anterior sigue corriendo, el programador se salta la nueva, y un candado impide dos `analizar` a la vez.
 
 La tarea `analizar` necesita `BAKERS_URL` (`http://127.0.0.1:8090`) y `BAKERS_API_KEY`, y las notas van a un clon parcial de la bóveda con una llave de despliegue que solo sirve para ese repo; el script que hace eso vive en `~\bakers\` de Pixilate, fuera de este repo porque nombra la bóveda. Para leer las notas desde otra máquina, `git pull` en la bóveda.
 
