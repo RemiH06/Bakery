@@ -68,6 +68,17 @@ def test_fuente_invalida_no_detiene_el_lote(monkeypatch, tmp_path):
     assert all("Ni archivo ni enlace" in r["error"] for r in res)
 
 
+def test_parar_corta_antes_del_siguiente_modelo(monkeypatch, tmp_path):
+    video = tmp_path / "prueba.mp4"
+    video.write_bytes(b"x")
+    monkeypatch.setattr(core, "estado", lambda: {"marcha": "alta"})
+    monkeypatch.setattr(core, "_cliente", lambda timeout: httpx.Client(
+        base_url="http://pixilate", transport=httpx.MockTransport(lambda r: pytest.fail("no debe pedir modelo"))))
+    monkeypatch.setattr(core, "LOG", tmp_path / "log.jsonl")
+    (res,) = reel.reel([str(video)], parar=lambda: "marcha media")
+    assert res["error"] == "Interrumpido tras descarga: marcha media"
+
+
 def test_bake_rechaza_reel():
     with pytest.raises(core.BakerError, match="propia herramienta"):
         core.bake("reel", "t", ["x"])

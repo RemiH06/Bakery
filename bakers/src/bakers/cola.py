@@ -10,11 +10,14 @@ import os
 import random
 import re
 import shutil
+import threading
 import time
 from collections import Counter
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
+
+import httpx
 
 from . import clases, core, reel
 from .core import BakerError
@@ -30,6 +33,7 @@ RED = 300                 # sin red (p. ej. al despertar de la suspensión): rei
 STRIKES = 3               # un enlace que da "bloqueo" 3 veces es privado o borrado, no la cuenta
 LOTE = 1                  # reels por llamada a `reel.reel` en `analizar`: con uno, un juego espera a lo más un reel
 MIN_LIBRE = 30            # GB libres en el disco de ~/.bakers para que `analizar` corra
+VIGILAR = 5               # segundos entre revisiones mientras `analizar` trabaja, como el vigilante
 
 # yt-dlp no distingue "rate-limit" de "login required" en un post privado: por eso los STRIKES
 _BLOQUEO = ("http error 400", "http error 401", "http error 403", "http error 429", "rate-limit", "rate limit",
@@ -41,7 +45,8 @@ _BLOQUEO = ("http error 400", "http error 401", "http error 403", "http error 42
 _RED = ("getaddrinfo", "timed out", "errno 11001", "connection reset", "connection refused",
         "connection aborted", "network is unreachable", "no route to host")
 # Fallas de la infraestructura, no del reel: desatendido, contarlas vaciaría la cola a fallidos en dos pasadas
-_CAIDA = ("sin conexión", "sin respuesta", "respondió 5", "ningún modelo cabe", "vram libre", "en el path")
+_CAIDA = ("sin conexión", "sin respuesta", "respondió 5", "ningún modelo cabe", "vram libre", "en el path",
+          "interrumpido")
 
 
 def _ahora() -> datetime:
@@ -282,6 +287,46 @@ def _impedimento(min_libre: float) -> str | None:
     return None if marcha == "alta" else f"marcha {marcha}"
 
 
+def _descargar(modelos: list[str]) -> None:
+    """Saca de llama-swap los modelos del trabajo que sigan cargados. Soltar el cliente no basta: el servidor
+    terminaría la respuesta en curso ocupando la VRAM que el juego necesita."""
+    try:
+        cargados = set(core.estado()["cargados"])
+        with core._cliente(timeout=10) as c:
+            for m in cargados & set(modelos):
+                c.post(f"/api/models/unload/{m}")
+    except (BakerError, httpx.HTTPError) as err:
+        print(f"[cola] no se pudo descargar {modelos}: {err}", flush=True)
+
+
+@contextmanager
+def _vigia(min_libre: float, trabajo: dict):
+    """Mientras `analizar` trabaja, revisa cada VIGILAR s si sigue tocando correr. Si no, deja el motivo en
+    `trabajo["alto"]` y descarga `trabajo["modelos"]` (los que usa el paso en curso, no los de una sesión de
+    Remi): la llamada truena y la pieza se queda en su estado, sin gastar intentos. Sigue descargando hasta que
+    `analizar` sale, por si un paso alcanzó a pedir el modelo otra vez."""
+    fin = threading.Event()
+
+    def vigilar() -> None:
+        while not fin.wait(VIGILAR):
+            if not trabajo["alto"]:
+                try:
+                    trabajo["alto"] = _impedimento(trabajo["min_libre"])
+                except BakerError as err:
+                    trabajo["alto"] = str(err)[-200:]
+            if trabajo["alto"]:
+                _descargar(trabajo["modelos"])
+
+    trabajo["min_libre"] = min_libre
+    hilo = threading.Thread(target=vigilar, daemon=True)
+    hilo.start()
+    try:
+        yield
+    finally:
+        fin.set()
+        hilo.join()
+
+
 def _pista(item: dict) -> str | None:
     """La sección y la etiqueta que Remi le puso al guardar el enlace: la clasificación que ya hizo a mano."""
     return " / ".join(x for x in (item.get("seccion"), item.get("etiqueta")) if x) or None
@@ -290,12 +335,14 @@ def _pista(item: dict) -> str | None:
 def analizar(destino: str, lote: int = LOTE, modelo: str | None = None, min_libre: float = MIN_LIBRE,
              ruta_clases: str | None = None) -> dict:
     """Tarea de fondo: corre `reel` sobre lo ya bajado y después le pone clase a lo analizado y escribe su nota en
-    `destino` con la plantilla de la clase (ver `clases.py`). Sale sin hacer nada si no hay piezas, y antes de cada
-    lote si la marcha deja de ser `alta`, si quedan menos de `min_libre` GB o si llama-swap no responde: la
-    siguiente vuelta retoma sin gastar intentos. Nunca descarga, de ningún sitio: le pasa a `reel` el video que
-    dejó `bajar`; si ya no está, el enlace vuelve a pendiente. Clasifica todo junto al final: el clasificador
-    usa otro modelo y cambiar de modelo en cada pieza cuesta una carga."""
-    with _candado("analizar"):
+    `destino` con la plantilla de la clase (ver `clases.py`). Sale sin hacer nada si no hay piezas, y a media
+    pieza (ver `_vigia`) si la marcha deja de ser `alta`, si quedan menos de `min_libre` GB o si llama-swap no
+    responde: la siguiente vuelta retoma sin gastar intentos. Matarlo en cualquier momento también es seguro:
+    cada pieza cambia de estado solo con su paso terminado. Nunca descarga, de ningún sitio: le pasa a `reel` el
+    video que dejó `bajar`; si ya no está, el enlace vuelve a pendiente. Clasifica todo junto al final: el
+    clasificador usa otro modelo y cambiar de modelo en cada pieza cuesta una carga."""
+    trabajo = {"alto": None, "modelos": [core.BAKERS["reel"]["transcriptor"], modelo or core.BAKERS["reel"]["modelo"]]}
+    with _candado("analizar"), _vigia(min_libre, trabajo):
         while True:
             e = _leer()
             listos, videos = [], {}
@@ -312,7 +359,7 @@ def analizar(destino: str, lote: int = LOTE, modelo: str | None = None, min_libr
                 videos[k] = str(video)
             if not listos and not any(i["estado"] == "clasificar" for i in e["items"].values()):
                 return estado()
-            if motivo := _impedimento(min_libre):
+            if motivo := trabajo["alto"] or _impedimento(min_libre):
                 print(f"[cola] {motivo}: sigue en la próxima vuelta", flush=True)
                 return estado()
             if not listos:
@@ -320,18 +367,19 @@ def analizar(destino: str, lote: int = LOTE, modelo: str | None = None, min_libr
             claves = listos[:lote]
             try:
                 # Sin destino: la nota final la escribe `_clasificar` con la plantilla de la clase
-                res = reel.reel([videos[k] for k in claves], None, modelo)
+                res = reel.reel([videos[k] for k in claves], None, modelo, lambda: trabajo["alto"])
             except BakerError as err:
-                if not _caida(str(err)):
+                if not (_caida(str(err)) or trabajo["alto"]):
                     raise
                 res = [{"error": str(err)} for _ in claves]
+            cortado = trabajo["alto"]  # lo que truena tras descargar el modelo no es culpa del reel
 
             def anotar(e: dict) -> None:
                 for k, r in zip(claves, res):
                     item = e["items"][k]
                     if "error" not in r:
                         item.update(estado="clasificar", material=str(Path(r["nota"]).parent), error=None)
-                    elif not _caida(r["error"]):
+                    elif not (cortado or _caida(r["error"])):
                         item["intentos_analisis"] = item.get("intentos_analisis", 0) + 1
                         item["error"] = r["error"][-300:]
                         if item["intentos_analisis"] >= 2:  # un reel que hace ciclar a la visión no se reintenta siempre
@@ -339,19 +387,24 @@ def analizar(destino: str, lote: int = LOTE, modelo: str | None = None, min_libr
 
             _cambiar(anotar)
             print(f"[cola] analizados {sum('error' not in r for r in res)} de {len(res)}", flush=True)
+            if cortado:
+                print(f"[cola] interrumpido ({cortado}): sigue en la próxima vuelta", flush=True)
+                return estado()
             if caida := next((r["error"] for r in res if "error" in r and _caida(r["error"])), None):
                 print(f"[cola] sin llama-swap, sigue en la próxima vuelta: {caida[-200:]}", flush=True)
                 return estado()
-        _clasificar(destino, ruta_clases)
+        _clasificar(destino, ruta_clases, trabajo)
         return estado()
 
 
-def _clasificar(destino: str, ruta_clases: str | None) -> None:
+def _clasificar(destino: str, ruta_clases: str | None, trabajo: dict) -> None:
     """Las piezas en `clasificar`, de 40 en 40: clase, nota con su plantilla y, si la clase no lo conserva,
-    material borrado. Sin la nota de clases esperan a la siguiente vuelta."""
+    material borrado. Sin la nota de clases esperan a la siguiente vuelta. Para entre lotes si `trabajo["alto"]`."""
     carpeta = Path(destino).expanduser()
     try:
         tabla = clases.cargar(carpeta, ruta_clases)
+        # El modelo de la marcha `alta`: si el vigía corta, descarga este y no los del reel
+        trabajo["modelos"] = [core.estado()["bakers"]["clasificador"]]
     except BakerError as err:
         print(f"[cola] {err}: las piezas analizadas esperan su clase", flush=True)
         return
@@ -368,27 +421,26 @@ def _clasificar(destino: str, ruta_clases: str | None) -> None:
     claves = list(datos)
     for n in range(0, len(claves), clases.LOTE):
         trozo = claves[n:n + clases.LOTE]
+        if trabajo["alto"]:
+            print(f"[cola] interrumpido ({trabajo['alto']}): la clase sigue en la próxima vuelta", flush=True)
+            return
         try:
             asignadas = clases.asignar([clases.linea(datos[k]["bloques"], _pista(e["items"][k])) for k in trozo],
                                        tabla)
         except BakerError as err:
-            if not _caida(str(err)):
+            if not (_caida(str(err)) or trabajo["alto"]):
                 raise
-            print(f"[cola] sin llama-swap, la clase sigue en la próxima vuelta: {str(err)[-200:]}", flush=True)
+            print(f"[cola] sin llama-swap o interrumpido, la clase sigue en la próxima vuelta: {str(err)[-200:]}",
+                  flush=True)
             return
-        notas = {}
-        for k, clase in zip(trozo, asignadas):
+        for k, clase in zip(trozo, asignadas):  # nota, cola y al final el material: así sobrevive a un corte
             b = datos[k]["bloques"]
             nombre = f"{b['visto']}-{reel._slug(datos[k]['cuenta'])}-{reel._slug(b['tema'])}.md"
             nota = clases.archivar(b, clase, tabla, carpeta, nombre)
-            notas[k] = (clase, str(nota) if nota else None)
-
-        def anotar(e: dict) -> None:
-            for k, (clase, nota) in notas.items():
-                e["items"][k].update(estado="analizado", clase=clase, nota=nota)
-
-        _cambiar(anotar)
-        print(f"[cola] clasificadas {len(notas)}: {dict(Counter(c for c, _ in notas.values()))}", flush=True)
+            _cambiar(lambda e, k=k, c=clase, n=nota: e["items"][k].update(estado="analizado", clase=c,
+                                                                           nota=str(n) if n else None))
+            clases.descartar(b, clase, tabla)
+        print(f"[cola] clasificadas {len(trozo)}: {dict(Counter(asignadas))}", flush=True)
 
 
 def reclasificar(destino: str, ruta_clases: str | None = None) -> dict:

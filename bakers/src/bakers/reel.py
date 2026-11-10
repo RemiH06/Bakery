@@ -282,7 +282,7 @@ def _vision(c: httpx.Client, cfg: dict, mensaje: list[dict], uso: dict) -> Reel:
     return Reel(**datos)
 
 
-def _uno(c: httpx.Client, cfg: dict, fuente: str, destino: Path | None) -> dict:
+def _uno(c: httpx.Client, cfg: dict, fuente: str, destino: Path | None, parar=lambda: None) -> dict:
     uso = {"modelo": None, "entrada": 0, "salida": 0, "intentos": 0}
     inicio, error, res = time.monotonic(), None, None
     pasos, ultimo = {}, inicio  # segundos por paso, para saber dónde se va el tiempo
@@ -290,6 +290,8 @@ def _uno(c: httpx.Client, cfg: dict, fuente: str, destino: Path | None) -> dict:
     def marca(paso: str) -> None:
         nonlocal ultimo
         pasos[paso], ultimo = round(time.monotonic() - ultimo, 2), time.monotonic()
+        if motivo := parar():  # entre pasos: que el siguiente no vuelva a cargar un modelo
+            raise BakerError(f"Interrumpido tras {paso}: {motivo}")
 
     try:
         video, meta = _obtener(fuente, cfg["navegador"])
@@ -335,11 +337,11 @@ def _uno(c: httpx.Client, cfg: dict, fuente: str, destino: Path | None) -> dict:
                         ok=error is None, error=error, claude_chars=len(fuente) + respuesta, pasos=pasos, **uso)
 
 
-def reel(fuentes: list[str], destino: str | None = None, modelo: str | None = None) -> list[dict]:
+def reel(fuentes: list[str], destino: str | None = None, modelo: str | None = None, parar=lambda: None) -> list[dict]:
     """Una nota por fuente (enlace o archivo local). Un fallo no detiene a las demás: queda en su `error`.
     `destino` es la carpeta de notas del proyecto; sin ella, la nota se queda junto al material.
     `modelo` cambia el de `bakers.toml` (p. ej. `vision-abliterado`, que no está en el grupo `reel`:
-    whisper y él se turnan la VRAM en cada reel)."""
+    whisper y él se turnan la VRAM en cada reel). `parar` regresa un motivo para cortar entre pasos, o None."""
     if not fuentes:
         raise BakerError("Sin fuentes: pasa enlaces de reels o rutas de videos")
     carpeta = None
@@ -354,4 +356,4 @@ def reel(fuentes: list[str], destino: str | None = None, modelo: str | None = No
     cfg = core.BAKERS["reel"] if modelo is None else {**core.BAKERS["reel"], "modelo": modelo}
     # whisper y vision quedan cargados juntos (grupo `reel` de llama-swap) mientras dure el lote
     with core._cliente(timeout=600) as c:
-        return [_uno(c, cfg, f, carpeta) for f in fuentes]
+        return [_uno(c, cfg, f, carpeta, parar) for f in fuentes]

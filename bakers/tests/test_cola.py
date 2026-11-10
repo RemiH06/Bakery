@@ -1,3 +1,4 @@
+import time
 from datetime import datetime, timedelta, timezone
 from itertools import chain, repeat
 from pathlib import Path
@@ -170,7 +171,7 @@ def test_otras_fuentes_se_bajan_una_vez(monkeypatch, reloj, tmp_path):
     assert cola.bajar()["conteo"] == {"bajado": 1}
     monkeypatch.setattr(core, "estado", lambda: {"marcha": "alta"})
     lotes = []
-    monkeypatch.setattr(reel, "reel", lambda fuentes, destino, modelo: lotes.append(fuentes) or
+    monkeypatch.setattr(reel, "reel", lambda fuentes, destino, modelo, parar: lotes.append(fuentes) or
                         [{"fuente": f, "nota": "n.md"} for f in fuentes])
     monkeypatch.setattr(reel, "_obtener", lambda *a: pytest.fail("analizar no debe descargar"))
     assert cola.analizar(str(tmp_path / "notas"))["conteo"] == {"clasificar": 1}  # sin nota de clases, espera
@@ -225,7 +226,7 @@ def test_analizar_solo_con_marcha_alta_y_disco(monkeypatch, reloj, tmp_path):
     monkeypatch.setattr(core, "estado", lambda: {"marcha": next(marchas)})
     lotes = []
 
-    def reel_falso(fuentes, destino, modelo):
+    def reel_falso(fuentes, destino, modelo, parar):
         assert destino is None and modelo == "vision-abliterado"  # la nota final la escribe la clase
         lotes.append(fuentes)
         return [{"fuente": f, "error": "bucle"} if "BBB" in f else {"fuente": f, "nota": f"{Path(f).parent}/nota.md"}
@@ -256,6 +257,29 @@ def test_analizar_sin_llama_swap_sale_sin_gastar_intentos(monkeypatch, reloj, tm
 
     monkeypatch.setattr(core, "estado", caido)
     assert cola.analizar("notas")["conteo"] == {"bajado": 1}
+
+
+def test_analizar_se_interrumpe_a_media_pieza(monkeypatch, reloj, tmp_path):
+    """Un juego que abre a media visión: el vigía descarga los modelos del reel, la pieza se queda en `bajado`
+    sin gastar intentos y no se clasifica nada."""
+    _bajados(monkeypatch, tmp_path, "AAA", "BBB")
+    monkeypatch.setattr(cola, "VIGILAR", 0.01)
+    marcha = {"ahora": "alta"}
+    monkeypatch.setattr(core, "estado", lambda: {"marcha": marcha["ahora"], "cargados": ["whisper", "vision"]})
+    descargados = []
+    monkeypatch.setattr(cola, "_descargar", lambda modelos: descargados.append(modelos))
+    monkeypatch.setattr(cola, "_clasificar", lambda *a: pytest.fail("interrumpido no clasifica"))
+
+    def reel_falso(fuentes, destino, modelo, parar):
+        marcha["ahora"] = "media"  # alguien abre un juego
+        while not parar():
+            time.sleep(0.01)
+        return [{"fuente": f, "error": "llama-swap respondió 404: model unloaded"} for f in fuentes]
+
+    monkeypatch.setattr(reel, "reel", reel_falso)
+    assert cola.analizar("notas")["conteo"] == {"bajado": 2}
+    assert descargados[0] == ["whisper", "vision"]
+    assert all("intentos_analisis" not in i for i in cola._leer()["items"].values())
 
 
 def test_un_solo_analizar_a_la_vez(reloj):

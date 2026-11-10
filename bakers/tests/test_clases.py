@@ -114,7 +114,7 @@ def test_analizar_clasifica_escribe_y_borra(monkeypatch, tmp_path, carpeta):
     monkeypatch.setattr(cola, "COLA", tmp_path / "cola")
     monkeypatch.setattr(cola, "ESTADO", tmp_path / "cola" / "cola.json")
     monkeypatch.setattr(cola, "_libre_gb", lambda: 100.0)
-    monkeypatch.setattr(core, "estado", lambda: {"marcha": "alta"})
+    monkeypatch.setattr(core, "estado", lambda: {"marcha": "alta", "bakers": {"clasificador": "bonsai"}, "cargados": []})
     items = {}
     for codigo, tema in (("AAA", "Paleta"), ("BBB", "Poder"), ("CCC", "Meme"), ("DDD", "Rareza")):
         items[codigo] = {"url": f"https://www.instagram.com/reel/{codigo}/", "estado": "clasificar",
@@ -146,7 +146,7 @@ def test_sin_nota_de_clases_las_piezas_esperan(monkeypatch, tmp_path, carpeta):
     monkeypatch.setattr(cola, "COLA", tmp_path / "cola")
     monkeypatch.setattr(cola, "ESTADO", tmp_path / "cola" / "cola.json")
     monkeypatch.setattr(cola, "_libre_gb", lambda: 100.0)
-    monkeypatch.setattr(core, "estado", lambda: {"marcha": "alta"})
+    monkeypatch.setattr(core, "estado", lambda: {"marcha": "alta", "bakers": {"clasificador": "bonsai"}, "cargados": []})
     monkeypatch.setattr(core, "bake", lambda *a: pytest.fail("sin clases no se llama al clasificador"))
     cola._guardar({"items": {"AAA": {"url": "u", "estado": "clasificar", "material": str(_pieza(tmp_path, "AAA", "T"))}},
                    "pausa_hasta": None, "motivo": None, "dia": None, "bajados_hoy": 0})

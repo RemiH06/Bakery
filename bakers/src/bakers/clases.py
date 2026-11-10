@@ -91,14 +91,23 @@ def _borrar(material: Path) -> None:
         shutil.rmtree(material)
 
 
+def _conserva(clase: str, clases: dict[str, dict]) -> bool:
+    return clase == REVISAR or clases.get(clase, {}).get("conserva", False)  # `revisar`: hasta que Remi decida
+
+
+def descartar(bloques: dict, clase: str, clases: dict[str, dict]) -> None:
+    """Borra el material si la clase no lo conserva. Va al final, ya con la nota escrita y la pieza anotada:
+    si el proceso muere antes, la siguiente vuelta todavía tiene `reel.json` para escribir la nota."""
+    if not _conserva(clase, clases) and bloques.get("material"):
+        _borrar(Path(bloques["material"]).expanduser())
+
+
 def archivar(bloques: dict, clase: str, clases: dict[str, dict], carpeta: Path, nombre: str,
              frontmatter: list[str] = ()) -> Path | None:
-    """Escribe `carpeta/nombre` con la plantilla de la clase y borra el material si la clase no lo conserva.
-    `ruido` no deja nota y regresa None. `revisar` conserva el material hasta que Remi decida."""
+    """Escribe `carpeta/nombre` con la plantilla de la clase; `ruido` no deja nota y regresa None. El material
+    se borra aparte, con `descartar`."""
     info = clases.get(clase, {})
-    conserva = clase == REVISAR or info.get("conserva", False)
-    if not conserva and bloques.get("material"):
-        _borrar(Path(bloques["material"]).expanduser())
+    conserva = _conserva(clase, clases)
     if clase == RUIDO:
         return None
     cuerpo = reel.plantilla(clase, {**bloques, "destino": info.get("destino", ""),
@@ -163,6 +172,7 @@ def reclasificar(destino: str, ruta_clases: str | None = None, pistas: dict[str,
         for (n, fm, b), clase in zip(trozo, asignar([linea(b, p) for (_, _, b), p in zip(trozo, pista)], clases)):
             if archivar(b, clase, clases, carpeta, n.name, fm) is None:
                 n.unlink()
+            descartar(b, clase, clases)
             conteo[clase] += 1
         print(f"[clases] {min(i + LOTE, len(notas))} de {len(notas)}", flush=True)
     return dict(conteo)
