@@ -78,10 +78,30 @@ def _guardar(e: dict) -> None:
 
 
 def _cambiar(fn) -> dict:
-    """Lee, aplica y guarda de inmediato: `agregar` o `analizar` pueden correr mientras `bajar` espera."""
-    e = _leer()
-    fn(e)
-    _guardar(e)
+    """Lee, aplica y guarda de inmediato: `agregar` (también desde el panel) o `analizar` pueden correr mientras
+    `bajar` espera. El candado `estado.lock` evita que dos procesos lean lo mismo y uno pise el cambio del otro."""
+    COLA.mkdir(parents=True, exist_ok=True)
+    with open(COLA / "estado.lock", "a+") as f:
+        f.seek(0)
+        if os.name == "nt":
+            import msvcrt
+            while True:  # LK_LOCK solo reintenta 10 s y luego truena
+                try:
+                    msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)
+                    break
+                except OSError:
+                    continue
+        else:
+            import fcntl
+            fcntl.flock(f, fcntl.LOCK_EX)
+        try:
+            e = _leer()
+            fn(e)
+            _guardar(e)
+        finally:
+            if os.name == "nt":
+                f.seek(0)
+                msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
     return e
 
 
@@ -121,11 +141,16 @@ def agregar(archivo: str) -> dict:
     ruta = Path(archivo).expanduser()
     if not ruta.is_file():
         raise BakerError(f"No existe {ruta}")
+    return agregar_texto(ruta.read_text("utf-8"))
+
+
+def agregar_texto(texto: str, seccion: str | None = None) -> dict:
+    """Lo mismo que `agregar`, con el texto pegado (el panel). `seccion` vale hasta el primer encabezado."""
     cuenta = {"agregados": 0, "repetidos": 0, "ya_bajados": 0, "sin_enlace": 0}
 
     def fn(e: dict) -> None:
-        seccion = None
-        for linea in ruta.read_text("utf-8").splitlines():
+        nonlocal seccion
+        for linea in texto.splitlines():
             if linea.startswith("#"):
                 seccion = linea.strip("# ").strip() or None
                 continue
@@ -188,8 +213,9 @@ def bajar(tope: int = TOPE) -> dict:
             if not pendientes:
                 print(f"[cola] nada pendiente ({_ahora():%Y-%m-%d %H:%M})", flush=True)
                 return estado()
-            cuando = _ventana(e, tope)
-            _guardar(e)  # _ventana pudo cambiar el día o fijar la pausa
+            cuando = []
+            e = _cambiar(lambda e: cuando.append(_ventana(e, tope)))  # pudo cambiar el día o fijar la pausa
+            cuando = cuando[0]
             if cuando is not None:
                 print(f"[cola] {e['motivo']}: sigue {cuando:%Y-%m-%d %H:%M}", flush=True)
                 _dormir_hasta(cuando)

@@ -3,7 +3,7 @@ import argparse
 import json
 import sys
 
-from . import chat, clases, cola, core, reel
+from . import chat, clases, cola, core, panel, reel
 
 
 def main() -> None:
@@ -34,6 +34,9 @@ def main() -> None:
     cs.add_parser("estado", help="bajados, pendientes, fallidos y próximo intento")
     cs.add_parser("reintentar", help="regresa los fallidos a la cola").add_argument(
         "--tipo", choices=("enlace", "bloqueo", "analisis"), help="solo los de este error (por defecto, todos)")
+    cp = cs.add_parser("panel", help="página con el estado y una caja para pegar enlaces, para el tailnet")
+    cp.add_argument("--puerto", type=int, default=panel.PUERTO)
+    cp.add_argument("--logs", help="carpeta con los .log de las tareas (p. ej. ~/bakery-jobs)")
     ch = sub.add_parser("chat", help="Baker de atención a clientes: probar, ver escaladas, evaluar")
     chs = ch.add_subparsers(dest="accion", required=True)
     chs.add_parser("hablar", help="conversación nueva en la terminal (vacío o Ctrl+C para salir)").add_argument(
@@ -52,6 +55,8 @@ def main() -> None:
             res = core.bake(a.baker, a.tarea, a.rutas, a.categorias)
         elif a.cmd == "reel":
             res = reel.reel(a.fuentes, a.destino)
+        elif a.cmd == "cola" and a.accion == "panel":
+            return panel.servir(a.puerto, a.logs)
         elif a.cmd == "cola":
             res = {"agregar": lambda: cola.agregar(a.archivo), "bajar": lambda: cola.bajar(a.tope),
                    "analizar": lambda: cola.analizar(a.destino, a.lote, a.modelo, a.min_libre, a.clases),
