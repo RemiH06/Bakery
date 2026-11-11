@@ -18,14 +18,16 @@ Un Baker no tiene herramientas ni bucle: no puede escribir, borrar ni salir a la
 
 Viven en [`src/bakers/bakers.toml`](src/bakers/bakers.toml). Agregar uno con un esquema existente es agregar una entrada; un esquema nuevo es un modelo de Pydantic en [`schemas.py`](src/bakers/schemas.py) y su rama en `core.bake`.
 
-| Baker | Devuelve |
-|---|---|
-| `resumidor` | `resumen`, `puntos`, `alertas` |
-| `doll` | `citas`, `no_encontrado`, `respuesta`, para el RAG de [Doll](https://github.com/RemiH06/Doll) |
-| `fichero` | ficha de especie desde varias fuentes: nombres, `descripcion`, `datos` y `ubicaciones_iteso` con fuente, `interacciones`, `contradicciones` (solo entre fuentes) y `faltantes` |
-| `clasificador` | cada línea no vacía en una de las categorías dadas, en lotes de 40: `conteo` y `por_categoria` (archivo → números de línea) |
-| `reel` | por cada reel o video corto: `tema`, `idea_central`, `recursos`, `citas`, `texto_en_pantalla`, `visual`, `afirmaciones`, `pasos` y la ruta de un borrador `nota.md` |
-| `chat` | por turno de una conversación con un cliente: `respuesta` y `escalar` |
+| Baker | Qué hace | Para qué sirve y quién lo usa | Modelo | Devuelve |
+|---|---|---|---|---|
+| `resumidor` | Lee archivos largos (logs, documentos, código) y los reduce a lo que pide la tarea | Que Claude no gaste contexto leyendo material voluminoso: le llega el resumen y las alertas de lo que sí hay que revisar. Por el MCP, desde cualquier proyecto | `principal` | `resumen`, `puntos`, `alertas` |
+| `clasificador` | Pone cada línea no vacía de los archivos en una de las categorías dadas, en lotes de 40, sin saltarse ninguna | Ordenar listas largas sin que Claude las lea. Lo usa la cola de reels para darle a cada pieza su clase de inspiración (`clases.py`) | `principal` | `conteo` y `por_categoria` (archivo → números de línea) |
+| `fichero` | Junta varias fuentes sobre una especie en una sola ficha y marca dónde se contradicen entre sí | Fichas de especies de Campus Lab ITESO (incluye ubicaciones en el campus); sirve igual para LinNeo | `principal` | nombres, `descripcion`, `datos` y `ubicaciones_iteso` con fuente, `interacciones`, `contradicciones` y `faltantes` |
+| `doll` | Responde una pregunta solo con fragmentos de notas, citando textual | La capa de respuesta del RAG de [Doll](https://github.com/RemiH06/Doll), que recupera los fragmentos y verifica por código que cada cita exista | `principal` | `citas`, `no_encontrado`, `respuesta` |
+| `reel` | Baja un reel o video corto, lo transcribe y mira sus fotogramas | Convertir lo que Remi guarda en redes en notas de inspiración para la bóveda, solo o en lote con la [cola de descargas](#cola-de-descargas). Herramienta propia (`reel` en el MCP, `baker reel`) | `vision` y `whisper` | `tema`, `idea_central`, `recursos`, `citas`, `texto_en_pantalla`, `visual`, `afirmaciones`, `pasos` y la ruta de un borrador `nota.md` |
+| `chat` | Atiende a los clientes de un negocio o un Airbnb con solo la hoja del producto, y escala lo que no sabe | Atención a terceros, varios turnos. No es para Claude: no está en el MCP (`baker chat`) | `principal` | por turno: `respuesta` y `escalar` |
+
+`principal` sigue la marcha del vigilante (Bonsai en `alta`, Qwen en `media`; ver [Marchas](#marchas)).
 
 ### `chat`
 
