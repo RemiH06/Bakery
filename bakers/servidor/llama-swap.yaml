@@ -142,9 +142,27 @@ models:
       --mmproj models/mmproj-Qwen3.6-35B-A3B-F16.gguf
     ttl: 600
 
+  # Embeddings para la búsqueda de Doll (bge-m3, MIT, multilingüe, 1024 dimensiones). Solo CPU
+  # (--device none): no toca la VRAM, así que no saca a bonsai ni mueve la marcha del vigilante, y
+  # sigue respondiendo en `ninguna`. Pide /v1/embeddings directo a llama-swap, sin pasar por el gateway.
+  # bge-m3 junta la frase con el token CLS; -ub igual a -c para que un fragmento largo entre de una vez.
+  "embeddings":
+    name: "bge-m3 Q8_0 (CPU)"
+    cmd: |
+      ${llama} --host 127.0.0.1 --port ${PORT} --no-webui
+      -m models/bge-m3-Q8_0.gguf --embedding --pooling cls --device none
+      -c 8192 -b 8192 -ub 8192 -np 1
+    ttl: 600
+
 # Los modelos fuera de un grupo se turnan entre sí (uno a la vez). `reel` deja a whisper y vision
 # cargados juntos durante un lote y, al ser exclusivo, descarga a bonsai o qwen mientras tanto.
+# `embeddings` es persistente: nadie lo descarga y él no descarga a nadie (solo su ttl).
 groups:
+  "embeddings":
+    swap: false
+    exclusive: false
+    persistent: true
+    members: ["embeddings"]
   "reel":
     swap: false
     exclusive: true
