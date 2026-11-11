@@ -71,8 +71,9 @@ def asignar(piezas: list[str], clases: dict[str, dict]) -> list[str]:
     lista = "\n".join(f"- {k}: {v['nombre']}. Keeps: {v['guarda']}" for k, v in clases.items())
     tarea = ("Each item summarizes a social media post the user saved. Pick the class whose topic matches it. "
              "A hint in brackets is the user's own folder name for it: trust it. "
-             f"Use {RUIDO} only when nothing is worth keeping, and {REVISAR} when it is worth keeping but no "
-             f"class fits.\nClasses:\n{lista}\n- {REVISAR}: worth keeping, but no class above fits")
+             "When no class matches exactly, pick the closest one. "
+             f"Use {RUIDO} only when nothing is worth keeping, and {REVISAR} only when no class is even close."
+             f"\nClasses:\n{lista}\n- {REVISAR}: worth keeping, but no class above is even close")
     with tempfile.TemporaryDirectory() as d:
         ruta = Path(d) / "piezas.txt"
         ruta.write_text("\n".join(piezas), "utf-8")
@@ -153,16 +154,19 @@ def _transcripcion(material: str | None) -> str:
     return "\n".join(f"- [{s['t']}] {s['texto']}" for s in reel.limpiar(json.loads(ruta.read_text("utf-8"))))
 
 
-def reclasificar(destino: str, ruta_clases: str | None = None, pistas: dict[str, str] | None = None) -> dict:
+def reclasificar(destino: str, ruta_clases: str | None = None, pistas: dict[str, str] | None = None,
+                 revisar: bool = False) -> dict:
     """Pone clase a las notas de `destino` que no la tienen y las reescribe con su plantilla, de 40 en 40 (lo
     hecho se queda si algo falla a media corrida). `ruido` borra la nota. `pistas`: código del reel -> sección o
-    etiqueta que Remi le puso al guardarlo."""
+    etiqueta que Remi le puso al guardarlo. Con `revisar`, también las que quedaron en `revisar` (tras agregar
+    una clase a la nota de clases)."""
     carpeta = Path(destino).expanduser()
     clases = cargar(carpeta, ruta_clases)
     notas = []
     for n in sorted(carpeta.glob("[0-9][0-9][0-9][0-9]-*.md")):
         fm, bloques = _de_nota(n.read_text("utf-8"))
-        if not any(x.startswith("clase:") for x in fm):
+        clase = next((x.partition(":")[2].strip() for x in fm if x.startswith("clase:")), None)
+        if clase is None or (revisar and clase == REVISAR):
             bloques["transcripcion"] = _transcripcion(bloques.get("material"))
             notas.append((n, fm, bloques))
     conteo = Counter()

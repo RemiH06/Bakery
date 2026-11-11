@@ -29,6 +29,7 @@ def main() -> None:
     ca.add_argument("--min-libre", type=float, default=cola.MIN_LIBRE, help="GB libres para correr")
     ca.add_argument("--clases", help=f"nota de clases (por defecto, {clases.NOTA_CLASES} del destino)")
     cr = cs.add_parser("reclasificar", help="clase y plantilla para las notas que no tienen clase")
+    cr.add_argument("--revisar", action="store_true", help="también las que quedaron en `revisar` (tras agregar una clase)")
     cr.add_argument("-d", "--destino", required=True, help="carpeta de notas")
     cr.add_argument("--clases", help=f"nota de clases (por defecto, {clases.NOTA_CLASES} del destino)")
     cs.add_parser("estado", help="bajados, pendientes, fallidos y próximo intento")
@@ -61,7 +62,7 @@ def main() -> None:
         elif a.cmd == "cola":
             res = {"agregar": lambda: cola.agregar(a.archivo), "bajar": lambda: cola.bajar(a.tope),
                    "analizar": lambda: cola.analizar(a.destino, a.lote, a.modelo, a.min_libre, a.clases),
-                   "reclasificar": lambda: cola.reclasificar(a.destino, a.clases), "estado": cola.estado,
+                   "reclasificar": lambda: cola.reclasificar(a.destino, a.clases, a.revisar), "estado": cola.estado,
                    "reintentar": lambda: cola.reintentar(a.tipo)}[a.accion]()
         elif a.cmd == "chat":
             if a.accion == "hablar":

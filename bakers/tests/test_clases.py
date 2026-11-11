@@ -175,3 +175,22 @@ def test_reclasificar_notas_viejas(monkeypatch, tmp_path, carpeta):
     assert "(pendiente)" not in nota and "## Texto en pantalla" not in nota and "## Recursos" not in nota
     assert not material.exists() and not (carpeta / "2026-11-05-otro-meme.md").exists()
     assert clases.reclasificar(str(carpeta)) == {}  # ya todas tienen clase
+
+
+def test_reclasificar_revisar_tras_agregar_una_clase(monkeypatch, tmp_path, carpeta):
+    material = _pieza(tmp_path, "AAA", "Rareza")
+    (material / "transcripcion.json").write_text(json.dumps([{"t": "00:01", "texto": "hola", "logprob": -0.1}]), "utf-8")
+    b = json.loads((material / "reel.json").read_text("utf-8"))["bloques"]
+    tabla = clases.cargar(carpeta)
+    clases.archivar(b, "revisar", tabla, carpeta, "2026-11-09-cuenta-rareza.md")
+    (carpeta / "2026-11-09-cuenta-paleta.md").write_text("---\nclase: diseno\n---\n# Paleta\n", "utf-8")
+    vistos = _clasificador(monkeypatch, {"Rareza": "critica", "Paleta": "ruido"})
+
+    assert clases.reclasificar(str(carpeta)) == {}  # sin --revisar, `revisar` ya cuenta como clase
+    assert clases.reclasificar(str(carpeta), revisar=True) == {"critica": 1}
+    assert vistos == ["Rareza. Algo. Account: @cuenta."]  # la de `diseno` no se toca
+    nota = (carpeta / "2026-11-09-cuenta-rareza.md").read_text("utf-8")
+    assert nota.startswith("---\ntipo: inspiración\nclase: critica\n---\n# Rareza\n")
+    assert "Pregúntale a Remi" not in nota and "- Destino: [[AduSI]]" in nota
+    assert "## Texto completo\n- [00:01] hola" in nota  # del material, que `revisar` conservaba
+    assert not material.exists()  # `critica` no conserva

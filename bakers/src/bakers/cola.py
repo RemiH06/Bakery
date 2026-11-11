@@ -469,8 +469,9 @@ def _clasificar(destino: str, ruta_clases: str | None, trabajo: dict) -> None:
         print(f"[cola] clasificadas {len(trozo)}: {dict(Counter(asignadas))}", flush=True)
 
 
-def reclasificar(destino: str, ruta_clases: str | None = None) -> dict:
-    """Clase y plantilla para las notas de `destino` escritas antes de las clases, con las pistas de la cola."""
+def reclasificar(destino: str, ruta_clases: str | None = None, revisar: bool = False) -> dict:
+    """Clase y plantilla para las notas de `destino` escritas antes de las clases (y, con `revisar`, las que
+    quedaron en `revisar`), con las pistas de la cola."""
     pistas = {k: p for k, i in _leer()["items"].items() if (p := _pista(i))}
-    return clases.reclasificar(destino, ruta_clases, pistas)
+    return clases.reclasificar(destino, ruta_clases, pistas, revisar)
 
