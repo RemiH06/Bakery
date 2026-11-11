@@ -18,6 +18,7 @@ from .core import BakerError
 PUERTO = 8093  # registrado en 48.SkillShot/PORTS.md
 MAX_CUERPO = 64_000
 RENGLONES = 40  # de cada log y de errores.jsonl
+LOGS = ("cola", "analizar", "panel")  # los de job.ps1 que tocan la cola; ahí también hay pruebas viejas
 
 
 def _cola_de(ruta: Path, n: int = RENGLONES) -> list[str]:
@@ -45,7 +46,7 @@ def datos(logs: Path | None = None) -> dict:
             continue
     return {"resumen": cola.estado(), "tope": cola.TOPE, "marcha": marcha, "libre_gb": round(cola._libre_gb()),
             "min_libre": cola.MIN_LIBRE, "items": items, "errores": errores[::-1],
-            "logs": {p.stem: _cola_de(p) for p in sorted(logs.glob("*.log"))} if logs else {}}
+            "logs": {n: _cola_de(logs / f"{n}.log") for n in LOGS if (logs / f"{n}.log").is_file()} if logs else {}}
 
 
 class _Panel(BaseHTTPRequestHandler):
