@@ -194,3 +194,22 @@ def test_reclasificar_revisar_tras_agregar_una_clase(monkeypatch, tmp_path, carp
     assert "Pregúntale a Remi" not in nota and "- Destino: [[AduSI]]" in nota
     assert "## Texto completo\n- [00:01] hola" in nota  # del material, que `revisar` conservaba
     assert not material.exists()  # `critica` no conserva
+
+
+def test_nota_usada_borra_su_material(monkeypatch, tmp_path, carpeta):
+    """Una nota de inspo que se usó en un proyecto se borra a mano; la cola borra su material y la marca `usado`."""
+    monkeypatch.setattr(cola, "COLA", tmp_path / "cola")
+    monkeypatch.setattr(cola, "ESTADO", tmp_path / "cola" / "cola.json")
+    material = _pieza(tmp_path, "AAA", "Paleta")
+    viva = _pieza(tmp_path, "BBB", "Otra")
+    (carpeta / "b.md").write_text("# Otra", "utf-8")
+    items = {"AAA": {"url": "u", "estado": "analizado", "material": str(material), "nota": str(carpeta / "a.md")},
+             "BBB": {"url": "u", "estado": "analizado", "material": str(viva), "nota": str(carpeta / "b.md")}}
+    cola._guardar({"items": items, "pausa_hasta": None, "motivo": None, "dia": None, "bajados_hoy": 0})
+
+    (carpeta / clases.NOTA_CLASES).rename(tmp_path / "fuera.md")  # sin la nota de clases, ni se toca
+    assert cola._consumidas(str(carpeta)) == 0 and material.exists()
+    (tmp_path / "fuera.md").rename(carpeta / clases.NOTA_CLASES)
+
+    assert cola.analizar(str(carpeta))["conteo"] == {"usado": 1, "analizado": 1}
+    assert not material.exists() and viva.exists()

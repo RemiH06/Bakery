@@ -358,6 +358,23 @@ def _pista(item: dict) -> str | None:
     return " / ".join(x for x in (item.get("seccion"), item.get("etiqueta")) if x) or None
 
 
+def _consumidas(destino: str) -> int:
+    """Piezas cuya nota ya no está en `destino` porque se usaron en un proyecto y se borraron (skill `inspiracion`,
+    "Usar inspo en un proyecto"): se borra su material y pasan a `usado`, con el ID en la cola para no volver a
+    bajarlas. Sin la nota de clases en `destino` no hace nada: una carpeta vacía o mal montada no es "todo usado"."""
+    carpeta = Path(destino).expanduser()
+    if not (carpeta / clases.NOTA_CLASES).is_file():
+        return 0
+    usadas = {k: i.get("material") for k, i in _leer()["items"].items()
+              if i["estado"] == "analizado" and i.get("nota") and Path(i["nota"]).parent == carpeta
+              and not Path(i["nota"]).exists()}
+    for material in usadas.values():  # primero el material: si muere a medias, la siguiente vuelta repite
+        if material:
+            clases._borrar(Path(material))
+    _cambiar(lambda e: [e["items"][k].update(estado="usado") for k in usadas])
+    return len(usadas)
+
+
 def analizar(destino: str, lote: int = LOTE, modelo: str | None = None, min_libre: float = MIN_LIBRE,
              ruta_clases: str | None = None) -> dict:
     """Tarea de fondo: corre `reel` sobre lo ya bajado y después le pone clase a lo analizado y escribe su nota en
@@ -369,6 +386,8 @@ def analizar(destino: str, lote: int = LOTE, modelo: str | None = None, min_libr
     clasificador usa otro modelo y cambiar de modelo en cada pieza cuesta una carga."""
     trabajo = {"alto": None, "modelos": [core.BAKERS["reel"]["transcriptor"], modelo or core.BAKERS["reel"]["modelo"]]}
     with _candado("analizar"), _vigia(min_libre, trabajo):
+        if usadas := _consumidas(destino):
+            print(f"[cola] {usadas} piezas usadas en un proyecto: material borrado", flush=True)
         while True:
             e = _leer()
             listos, videos = [], {}

@@ -39,7 +39,7 @@ button:focus-visible, a:focus-visible, textarea:focus-visible, input:focus-visib
 .pila { display: grid; gap: 8px; }
 .insignia { font-size: .78rem; font-weight: 600; padding: 2px 8px; border-radius: 999px; border: 1px solid currentColor; white-space: nowrap; }
 .e-pendiente { color: var(--pendiente); } .e-bajado { color: var(--bajado); } .e-clasificar { color: var(--clasificar); }
-.e-analizado { color: var(--analizado); } .e-fallido { color: var(--fallido); }
+.e-analizado { color: var(--analizado); } .e-fallido { color: var(--fallido); } .e-usado { color: var(--tenue); }
 ul.items { list-style: none; margin: 0; padding: 0; }
 ul.items li { border-top: 1px solid var(--borde); padding: 10px 0; display: grid; gap: 3px; }
 ul.items li:first-child { border-top: 0; }
@@ -95,7 +95,7 @@ details summary { cursor: pointer; padding: 4px 0; }
 </main>
 <script>
 "use strict";
-const ESTADOS = ["fallido", "bajado", "clasificar", "pendiente", "analizado"];
+const ESTADOS = ["fallido", "bajado", "clasificar", "pendiente", "analizado", "usado"];
 let ultimo = null, filtro = "todos";
 
 function el(tag, props = {}, ...hijos) {
