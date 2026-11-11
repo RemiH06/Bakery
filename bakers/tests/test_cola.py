@@ -112,7 +112,7 @@ def test_json_vacio_es_bloqueo_y_enlace_roto_espera(monkeypatch, reloj, tmp_path
     res = cola.bajar()
     assert res["conteo"] == {"bajado": 1, "fallido": 1} and "AAA" in res["fallidos"]
     assert llamadas == ["AAA", "BBB", "BBB"]
-    assert 60 <= dormidas[0] <= 240                  # tras el enlace roto
+    assert cola.ENTRE[0] <= dormidas[0] <= cola.ENTRE[1]  # tras el enlace roto
     assert 2 * 3600 <= dormidas[1] <= 3 * 3600       # tras el JSON vacío
 
 

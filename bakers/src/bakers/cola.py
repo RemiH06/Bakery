@@ -25,9 +25,9 @@ from .core import BakerError
 COLA = Path.home() / ".bakers" / "cola"  # fuera del repo: son los enlaces de Remi
 ESTADO = COLA / "cola.json"
 ERRORES = COLA / "errores.jsonl"
-TOPE = 30                 # descargas por día; ver "Cola de descargas" en el README
+TOPE = 100                # descargas por día; con ENTRE, la ventana corta antes (~85): ver el README
 HORAS = range(9, 23)      # solo baja de 9:00 a 22:59, como alguien despierto
-ENTRE = (60, 240)         # segundos entre descargas
+ENTRE = (300, 900)        # segundos entre descargas: repartidas en el día, no en ráfaga
 BLOQUEO = (7200, 10800)   # segundos tras un error de Instagram
 RED = 300                 # sin red (p. ej. al despertar de la suspensión): reintenta sin contar
 STRIKES = 3               # un enlace que da "bloqueo" 3 veces es privado o borrado, no la cuenta
