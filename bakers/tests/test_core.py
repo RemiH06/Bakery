@@ -134,6 +134,19 @@ def test_marcha_ninguna_da_error_claro(monkeypatch, tmp_path):
         core.bake("resumidor", "t", [str(archivo)])
 
 
+def test_cuerpo_del_error_no_llega_al_log(monkeypatch, tmp_path):
+    monkeypatch.setattr(core, "_cliente", lambda timeout: httpx.Client(
+        base_url="http://pixilate", transport=httpx.MockTransport(lambda req: httpx.Response(500, text="eco SECRETO"))))
+    monkeypatch.setattr(core, "LOG", tmp_path / "log.jsonl")
+    archivo = tmp_path / "a.txt"
+    archivo.write_text("x", encoding="utf-8")
+
+    with pytest.raises(core.BakerError, match="respondió 500") as e:
+        core.bake("resumidor", "t", [str(archivo)])
+    assert "SECRETO" in e.value.__notes__[0]
+    assert "SECRETO" not in (tmp_path / "log.jsonl").read_text("utf-8")
+
+
 def test_tope_de_salida_corta_el_bucle_sin_reintentar(monkeypatch, tmp_path):
     recibidos = []
 
