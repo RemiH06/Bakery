@@ -1,4 +1,5 @@
 import threading
+from datetime import datetime
 from http.server import ThreadingHTTPServer
 
 import httpx
@@ -26,6 +27,7 @@ def url(monkeypatch, tmp_path):
     (logs / "cola.log").write_text("[cola] bajado AAA (1 hoy)\n", "utf-8")
     monkeypatch.setattr(panel._Panel, "logs", logs)
     monkeypatch.setattr(panel._Panel, "usuarios", set())
+    monkeypatch.setattr(panel._Panel, "bandeja", None)
     s = ThreadingHTTPServer(("127.0.0.1", 0), panel._Panel)
     threading.Thread(target=s.serve_forever, daemon=True).start()
     yield f"http://127.0.0.1:{s.server_address[1]}"
@@ -49,6 +51,22 @@ def test_pegar_enlaces_y_ver_el_estado(url):
                                                                   "https://www.instagram.com/reel/AAA/")
     assert (b["seccion"], b["url"]) == ("Diseño", "https://www.instagram.com/p/BBB/")  # el encabezado manda
     assert d["marcha"].startswith("sin respuesta") and d["logs"] == {"cola": ["[cola] bajado AAA (1 hoy)"]}
+
+
+POEMA = "\n  Arde la miel,\nno el agua.\n\n¿Quién nombra al río?   \n"
+
+
+def test_texto_sin_enlaces_va_a_la_bandeja_tal_cual(url, monkeypatch, tmp_path):
+    assert httpx.post(f"{url}/api/agregar", headers=YO, json={"texto": POEMA}).status_code == 400  # sin bandeja
+    monkeypatch.setattr(panel._Panel, "bandeja", tmp_path / "Bandeja")
+    monkeypatch.setattr(cola, "_ahora", lambda: datetime(2026, 11, 10, 19, 32))
+    for _ in range(2):
+        r = httpx.post(f"{url}/api/agregar", headers=YO, json={"texto": POEMA, "seccion": "AyP"})
+    assert r.json() == {"bandeja": "2026-11-10-1932-arde-la-miel-no-el-agua-2.md"}
+    nota = (tmp_path / "Bandeja" / "2026-11-10-1932-arde-la-miel-no-el-agua.md").read_text("utf-8")
+    assert nota == ("---\ntipo: bandeja\nestado: semilla\nfecha: 2026-11-10T19:32\norigen: panel de Bakery\n"
+                    'pista: "AyP"\n---\n  Arde la miel,\nno el agua.\n\n¿Quién nombra al río?   \n')
+    assert cola._leer()["items"] == {}  # no pasó por la cola
 
 
 def test_acciones_solo_con_json(url):

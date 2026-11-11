@@ -62,14 +62,14 @@ details summary { cursor: pointer; padding: 4px 0; }
   </section>
 
   <section aria-labelledby="t-agregar">
-    <h2 id="t-agregar">Agregar enlaces</h2>
+    <h2 id="t-agregar">Agregar enlaces o un texto</h2>
     <form id="agregar" class="pila">
-      <label for="texto" class="tenue">Pega uno o varios, uno por renglón. Lo que va antes del enlace ("Osiris: https://…") se guarda como etiqueta, y un renglón "# Política" cambia la sección.</label>
-      <textarea id="texto" required placeholder="https://www.instagram.com/reel/…"></textarea>
-      <label for="seccion" class="tenue">Sección (opcional; es la pista del clasificador)</label>
+      <label for="texto" class="tenue">Enlaces: uno o varios, uno por renglón. Lo que va antes del enlace ("Osiris: https://…") se guarda como etiqueta, y un renglón "# Política" cambia la sección. Un texto sin ningún enlace (poema, aforismo, idea) se guarda completo y tal cual en la bandeja de la bóveda.</label>
+      <textarea id="texto" required placeholder="https://www.instagram.com/reel/… o un texto"></textarea>
+      <label for="seccion" class="tenue">Sección (opcional): la pista del clasificador o, para un texto, a dónde crees que va</label>
       <input id="seccion" list="secciones" autocomplete="off">
       <datalist id="secciones"></datalist>
-      <div class="fila"><button class="primario" type="submit">Agregar a la cola</button><span id="aviso" role="status"></span></div>
+      <div class="fila"><button class="primario" type="submit">Guardar</button><span id="aviso" role="status"></span></div>
     </form>
   </section>
 
@@ -209,6 +209,11 @@ document.getElementById("agregar").addEventListener("submit", async (ev) => {
   const texto = document.getElementById("texto").value;
   try {
     const r = await api("/api/agregar", { texto, seccion: document.getElementById("seccion").value });
+    if (r.bandeja) {
+      avisar(`Guardado en la bandeja: ${r.bandeja}. Llega a la bóveda en la siguiente vuelta (10 min a lo más).`);
+      document.getElementById("texto").value = "";
+      return;
+    }
     const partes = [`${r.agregados} agregados`, r.repetidos && `${r.repetidos} ya estaban`, r.ya_bajados && `${r.ya_bajados} ya bajados`, r.sin_enlace && `${r.sin_enlace} renglones sin enlace`];
     avisar(partes.filter(Boolean).join(", ") + `. En cola: ${r.en_cola}.`);
     if (r.agregados) document.getElementById("texto").value = "";
