@@ -179,7 +179,9 @@ def _transcribir(c: httpx.Client, cfg: dict, video: Path, trabajo: Path) -> list
     except httpx.HTTPError as e:
         raise BakerError(f"Sin conexión con llama-swap en {c.base_url}: {e!r}") from e
     if r.is_error:
-        raise BakerError(f"whisper respondió {r.status_code}: {r.text[:500]}")
+        e = BakerError(f"whisper respondió {r.status_code}")  # cuerpo fuera del log, como en core
+        e.add_note(r.text[:500])
+        raise e
     segmentos = [{"t": _mmss(s["start"]), "texto": s["text"].strip(), "logprob": round(s.get("avg_logprob", 0), 2)}
                  for s in r.json().get("segments", [])]
     (trabajo / "transcripcion.json").write_text(json.dumps(segmentos, ensure_ascii=False, indent=1), "utf-8")

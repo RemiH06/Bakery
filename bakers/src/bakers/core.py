@@ -92,7 +92,10 @@ def _llamar(c: httpx.Client, cfg: dict, mensaje: str | list[dict], esquema: type
             raise BakerError(f"{err['n_prompt_tokens']} tokens pasan el contexto de {err['n_ctx']}: "
                              "parte la tarea en varias llamadas")
         if r.is_error:
-            raise BakerError(f"llama-swap respondió {r.status_code}: {r.text[:500]}")
+            # El cuerpo va como nota (sale en el traceback), no en `str(e)`, que va al log
+            e = BakerError(f"llama-swap respondió {r.status_code}")
+            e.add_note(r.text[:500])
+            raise e
         datos = r.json()
         uso["modelo"] = datos.get("model")
         uso["entrada"] += datos["usage"]["prompt_tokens"]
