@@ -25,7 +25,7 @@ from .core import BakerError
 COLA = Path.home() / ".bakers" / "cola"  # fuera del repo: son los enlaces de Remi
 ESTADO = COLA / "cola.json"
 ERRORES = COLA / "errores.jsonl"
-TOPE = 100                # descargas por día; con ENTRE, la ventana corta antes (~85): ver el README
+TOPE = 30                 # descargas por día; con 100 Instagram cerró la sesión (2026-11-11): ver el README
 HORAS = range(9, 23)      # solo baja de 9:00 a 22:59, como alguien despierto
 ENTRE = (300, 900)        # segundos entre descargas: repartidas en el día, no en ráfaga
 BLOQUEO = (7200, 10800)   # segundos tras un error de Instagram
