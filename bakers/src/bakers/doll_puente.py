@@ -10,7 +10,7 @@ import sys
 
 from doll import corpus as corpus_mod
 from doll import indice
-from doll.preguntar import nombres_faltantes, preguntar
+from doll.preguntar import preguntar
 
 
 def _fragmento(f, corpus) -> dict:
@@ -29,14 +29,9 @@ def main() -> None:
         res = {"fragmentos": [_fragmento(f, corpus) for f in indice.buscar(con, consulta, k)]}
     elif modo == "preguntar":
         r = preguntar(con, corpus, consulta, k)
-        faltan = []
-        if r.no_encontrado and not r.intentos:  # Doll cortó antes del modelo: decir por qué
-            tema, solo = corpus.alcance(consulta)
-            recuperados = indice.ampliar(con, indice.buscar(con, tema, k, indice.Filtro(solo=solo)))
-            faltan = sorted(nombres_faltantes(consulta, recuperados)) if recuperados else []
         res = {"respuesta": r.texto, "no_encontrado": r.no_encontrado, "fallo": r.fallo,
                "citas_descartadas": r.citas_descartadas, "intentos": r.intentos, "leidos": len(r.fragmentos),
-               "faltan": faltan,
+               "faltan": r.faltan,
                "citas": [{"texto": c.texto, "ruta": c.ruta, "linea_ini": c.linea_ini, "linea_fin": c.linea_fin}
                          for c in r.citas],
                "fragmentos": [_fragmento(f, corpus) for f in r.fragmentos] if r.fallo else []}

@@ -158,7 +158,9 @@ frs = [f("2026-10-30-poeta-anhelo.md", "Cita"), f("2026-10-30-poeta-anhelo.md", 
 if consulta == "truena":
     sys.exit("se cayó el índice")
 print(json.dumps({"fragmentos": frs} if modo == "buscar" else
-                 {"respuesta": "Arde.", "no_encontrado": False, "fallo": None, "citas_descartadas": 0,
+                 {"respuesta": "", "no_encontrado": True, "fallo": None, "citas_descartadas": 0, "intentos": 0,
+                  "faltan": ["Zacarías"], "citas": [], "fragmentos": []} if "Zacarías" in consulta else
+                 {"respuesta": "Arde.", "no_encontrado": False, "fallo": None, "citas_descartadas": 0, "faltan": [],
                   "citas": [{"texto": "arde", "ruta": frs[0]["ruta"], "linea_ini": 3, "linea_fin": 3}], "fragmentos": []}))
 '''
 
@@ -177,7 +179,10 @@ def test_doll_por_el_puente(con_notas, monkeypatch, tmp_path):
     assert httpx.get(f"{con_notas}/api/doll", headers=YO, params={"q": "truena"}).json()["error"].endswith("se cayó el índice")
     assert httpx.get(f"{con_notas}/api/doll", headers=YO, params={"q": " "}).status_code == 400
     p = httpx.post(f"{con_notas}/api/doll/preguntar", headers=YO, json={"q": "¿qué arde?"}, timeout=30).json()
-    assert (p["respuesta"], p["citas"][0]["texto"], p["notas"]) == ("Arde.", "arde", [])
+    assert (p["respuesta"], p["citas"][0]["texto"], p["notas"], p["faltan"]) == ("Arde.", "arde", [], [])
+    # Doll cortó antes del modelo: el porqué viene de Doll y el panel lo pasa tal cual
+    p = httpx.post(f"{con_notas}/api/doll/preguntar", headers=YO, json={"q": "¿Qué dijo Zacarías?"}, timeout=30).json()
+    assert (p["no_encontrado"], p["faltan"]) == (True, ["Zacarías"])
     # Preguntar gasta GPU: solo por POST con JSON
     assert httpx.get(f"{con_notas}/api/doll/preguntar", headers=YO, params={"q": "x"}).status_code == 404
 
