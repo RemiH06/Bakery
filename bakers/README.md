@@ -29,6 +29,8 @@ Viven en [`src/bakers/bakers.toml`](src/bakers/bakers.toml). Agregar uno con un 
 
 `principal` sigue la marcha del vigilante (Bonsai en `alta`, Qwen en `media`; ver [Marchas](#marchas)).
 
+Fuera de los Bakers, `core.embeber(textos)` devuelve un vector por texto del modelo `embeddings` (bge-m3 en CPU, sin tocar la GPU). Lo usa la búsqueda por sentido de Doll. El log guarda cuántos textos y cuánto tardó, nunca los textos.
+
 ### `chat`
 
 Atención a clientes de un negocio o un Airbnb, de varios turnos y de cara a terceros. No es para Claude: no está en el MCP y `bake` lo rechaza. Cada conversación se liga a un producto y lleva su hoja (`~/.bakers/chat/hojas/<producto>.md`, Markdown libre: horarios, reglas, FAQ) al final del `sistema`, más el historial de esa conversación (los últimos 12k caracteres). Solo responde con la hoja; si no alcanza, o si piden precios, descuentos, excepciones o reservas que la hoja no trae, marca `escalar` y el cliente recibe un texto fijo de traspaso (`chat.TRASPASO`): una escalada nunca lleva datos del modelo. Con Pixilate apagado, en marcha `ninguna` o sin respuesta en 60 s, también recibe el traspaso, no un error.

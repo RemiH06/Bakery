@@ -187,3 +187,23 @@ def test_resumen_log_agrupa_y_no_cuenta_fallos_en_tiempos(monkeypatch, tmp_path)
 
 def test_esquema_de_doll_trae_citas():
     assert core.UNA_LLAMADA[core.BAKERS["doll"]["esquema"]].model_fields.keys() == {"citas", "no_encontrado", "respuesta"}
+
+
+def test_embeber_por_lotes_en_orden_y_sin_textos_en_el_log(monkeypatch, tmp_path):
+    lotes = []
+
+    def handler(req):
+        cuerpo = json.loads(req.content)
+        lotes.append(len(cuerpo["input"]))
+        datos = [{"index": i, "embedding": [float(len(t))]} for i, t in enumerate(cuerpo["input"])]
+        return httpx.Response(200, json={"data": datos[::-1]})  # el servidor no promete el orden
+
+    monkeypatch.setattr(core, "_cliente", lambda timeout: httpx.Client(
+        base_url="http://pixilate", transport=httpx.MockTransport(handler)))
+    monkeypatch.setattr(core, "LOG", tmp_path / "log.jsonl")
+    textos = ["x" * n for n in range(1, 21)] + ["SECRETO"]
+    assert core.embeber(textos) == [[float(len(t))] for t in textos]
+    assert lotes == [16, 5]
+    [linea] = log(tmp_path)
+    assert linea["baker"] == "embeddings" and linea["textos"] == 21 and linea["ok"]
+    assert "SECRETO" not in (tmp_path / "log.jsonl").read_text("utf-8")

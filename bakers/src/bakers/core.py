@@ -180,6 +180,34 @@ def bake(baker: str, tarea: str, rutas: list[str], categorias: list[str] | None 
                    ok=error is None, error=error, claude_chars=pedido + respuesta, **uso)
 
 
+EMBEDDINGS = "embeddings"  # entrada de llama-swap.yaml: bge-m3 en CPU, no compite con Bonsai por la GPU
+LOTE_EMBEDDINGS = 16
+
+
+def embeber(textos: list[str]) -> list[list[float]]:
+    """Un vector por texto, en el mismo orden. Los textos no van al log: solo cuántos y cuánto tardó."""
+    inicio, error, vectores = time.monotonic(), None, []
+    try:
+        with _cliente(timeout=600) as c:  # la primera llamada puede esperar a que cargue el modelo
+            for i in range(0, len(textos), LOTE_EMBEDDINGS):
+                try:
+                    r = c.post("/v1/embeddings", json={"model": EMBEDDINGS, "input": textos[i:i + LOTE_EMBEDDINGS]})
+                except httpx.HTTPError as e:
+                    raise BakerError(f"Sin conexión con llama-swap en {c.base_url}: {e!r}") from e
+                if r.is_error:
+                    e = BakerError(f"llama-swap respondió {r.status_code} al pedir embeddings")
+                    e.add_note(r.text[:500])
+                    raise e
+                vectores += [d["embedding"] for d in sorted(r.json()["data"], key=lambda d: d["index"])]
+        return vectores
+    except Exception as e:
+        error = str(e)
+        raise
+    finally:
+        _registrar(baker=EMBEDDINGS, textos=len(textos), segundos=round(time.monotonic() - inicio, 2),
+                   ok=error is None, error=error)
+
+
 def _registrar(**campos) -> None:
     LOG.parent.mkdir(parents=True, exist_ok=True)
     linea = {"ts": datetime.now(timezone.utc).isoformat(timespec="seconds"), **campos}
