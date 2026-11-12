@@ -126,8 +126,9 @@ class Carpeta:
         return {**n.meta, "fuente": self.fuente, "texto": n.texto} if n else None
 
 
-def _legible(texto: str) -> str:
+def legible(texto: str) -> str:
     """El fragmento es texto plano: sin la sintaxis de Markdown que lo vuelve ilegible en una línea."""
+    texto = re.sub(r"(?m)^\s*\|?(\s*:?-{2,}:?\s*\|)+(\s*:?-{2,}:?\s*)?$", "", texto)  # |---|---| de las tablas
     texto = re.sub(r"\[\[([^\]|]+?)(?:\\?\|([^\]]+))?\]\]", lambda m: m[2] or m[1], texto)
     texto = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"\1", texto)
     texto = re.sub(r"(?m)^\s*(#{1,6}|[-*+]|>)\s+", "", texto)
@@ -140,7 +141,7 @@ def _fragmento(nota: _Nota, pos: int | None, largo: int) -> str:
     if pos is None:  # sin búsqueda: el primer párrafo después del encabezado de la nota
         _, cuerpo = _frontmatter(texto)
         lineas = [x for x in cuerpo.splitlines() if x.strip() and not x.startswith(("#", "- ", "|", "---"))]
-        return _legible(lineas[0])[:2 * CONTEXTO] if lineas else ""
+        return legible(lineas[0])[:2 * CONTEXTO] if lineas else ""
     ini, fin = nota.mapa[pos], nota.mapa[min(pos + largo, len(nota.mapa)) - 1] + 1
     cuerpo = len(texto) - len(_frontmatter(texto)[1])
     # Si la coincidencia está en el cuerpo, el fragmento no arrastra el frontmatter
@@ -150,7 +151,7 @@ def _fragmento(nota: _Nota, pos: int | None, largo: int) -> str:
         a -= 1
     while b < len(texto) and not texto[b].isspace() and b - fin < CONTEXTO + 20:
         b += 1
-    return ("…" if a else "") + _legible(texto[a:b]) + ("…" if b < len(texto) else "")
+    return ("…" if a else "") + legible(texto[a:b]) + ("…" if b < len(texto) else "")
 
 
 def buscar(carpeta: Carpeta, q: str = "", grupo: str | None = None, clase: str | None = None,

@@ -69,11 +69,6 @@ export function resaltar(raiz, q) {
   return marcas;
 }
 
-export function debounce(fn, ms) {
-  let t;
-  return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };
-}
-
 // Pestañas con teclado (patrón de tablist): flechas, Inicio y Fin mueven el foco y activan
 export function teclasPestanas(lista, activar) {
   lista.addEventListener("keydown", (ev) => {

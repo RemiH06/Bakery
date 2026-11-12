@@ -1,3 +1,4 @@
+import sys
 import threading
 from datetime import datetime
 from http.server import ThreadingHTTPServer
@@ -148,6 +149,37 @@ def test_nota_solo_por_nombre_del_indice(con_notas, tmp_path):
         assert pedir(nombre=raro).status_code == 404, raro
     assert pedir(fuente="otra", nombre="x.md").status_code == 404
     assert httpx.get(f"{con_notas}/api/nota", params={"nombre": "2026-10-30-poeta-anhelo.md"}).status_code == 403
+
+
+FALSO_DOLL = r'''import json, sys
+modo, corpus, consulta, k = sys.argv[1:]
+f = lambda ruta, enc: {"ruta": ruta, "encabezado": enc, "linea_ini": 3, "linea_fin": 5, "texto": consulta, "terceros": True}
+frs = [f("2026-10-30-poeta-anhelo.md", "Cita"), f("2026-10-30-poeta-anhelo.md", "Otra"), f("0. Clases de inspiración.md", "Clases")]
+if consulta == "truena":
+    sys.exit("se cayó el índice")
+print(json.dumps({"fragmentos": frs} if modo == "buscar" else
+                 {"respuesta": "Arde.", "no_encontrado": False, "fallo": None, "citas_descartadas": 0,
+                  "citas": [{"texto": "arde", "ruta": frs[0]["ruta"], "linea_ini": 3, "linea_fin": 3}], "fragmentos": []}))
+'''
+
+
+def test_doll_por_el_puente(con_notas, monkeypatch, tmp_path):
+    assert httpx.get(f"{con_notas}/api/doll", headers=YO, params={"q": "x"}).status_code == 404  # sin --doll
+    puente = tmp_path / "puente.py"
+    puente.write_text(FALSO_DOLL, "utf-8")
+    monkeypatch.setattr(panel, "PUENTE", puente)
+    monkeypatch.setattr(panel._Panel, "doll", sys.executable)
+    r = httpx.get(f"{con_notas}/api/doll", headers=YO, params={"q": "página que arde"}).json()
+    a, b = r["notas"]  # agrupados por nota, en el orden de Doll
+    assert (a["titulo"], a["abrible"], [x["encabezado"] for x in a["fragmentos"]]) == ("Sobre el anhelo", True, ["Cita", "Otra"])
+    assert a["fragmentos"][0]["texto"] == "página que arde" and a["grupos"] == ["AyP", "100"]
+    assert (b["nombre"], b["abrible"]) == ("0. Clases de inspiración.md", False)
+    assert httpx.get(f"{con_notas}/api/doll", headers=YO, params={"q": "truena"}).json()["error"].endswith("se cayó el índice")
+    assert httpx.get(f"{con_notas}/api/doll", headers=YO, params={"q": " "}).status_code == 400
+    p = httpx.post(f"{con_notas}/api/doll/preguntar", headers=YO, json={"q": "¿qué arde?"}, timeout=30).json()
+    assert (p["respuesta"], p["citas"][0]["texto"], p["notas"]) == ("Arde.", "arde", [])
+    # Preguntar gasta GPU: solo por POST con JSON
+    assert httpx.get(f"{con_notas}/api/doll/preguntar", headers=YO, params={"q": "x"}).status_code == 404
 
 
 def test_acciones_solo_con_json(url):

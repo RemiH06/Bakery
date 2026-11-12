@@ -11,6 +11,8 @@ La página y sus fuentes salen de `web/`, sin nada externo: la CSP no deja carga
 import json
 import os
 import re
+import subprocess
+import threading
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.resources import files
@@ -90,6 +92,41 @@ def datos(logs: Path | None = None) -> dict:
             "logs": {n: _cola_de(logs / f"{n}.log") for n in LOGS if (logs / f"{n}.log").is_file()} if logs else {}}
 
 
+PUENTE = Path(__file__).with_name("doll_puente.py")
+DOLL_CORPUS = "inspo"  # en ~/.doll/corpus.toml de la máquina del panel, con la carpeta de `--notas` como ruta
+_PREGUNTA = threading.Lock()  # un `bake` a la vez: en paralelo, el servidor corre los dos y uno se pierde
+
+
+def doll(python: str, modo: str, consulta: str, k: int) -> dict:
+    """Corre el puente con el Python de Doll. `buscar` tarda lo que indexar las notas nuevas; `preguntar`, lo que
+    tarde el Baker `doll` (con la marcha `media` o un juego abierto, hasta un par de minutos)."""
+    try:
+        # -X utf8: con -I no valen las variables PYTHON*, y en Windows stderr saldría en cp1252
+        p = subprocess.run([python, "-I", "-X", "utf8", str(PUENTE), modo, DOLL_CORPUS, consulta, str(k)], capture_output=True,
+                           text=True, encoding="utf-8", errors="replace", timeout=60 if modo == "buscar" else 300)
+    except (OSError, subprocess.TimeoutExpired) as err:
+        raise BakerError(f"Doll no respondió: {err}") from None
+    if p.returncode:
+        raise BakerError(f"Doll falló: {(p.stderr or p.stdout).strip()[-300:]}")
+    return json.loads(p.stdout)
+
+
+def _con_notas(fragmentos: list[dict], carpeta: notas.Carpeta | None) -> list[dict]:
+    """Agrupa los fragmentos por nota, en el orden de Doll (el de la mejor), con los datos de la nota del explorador."""
+    por_nota: dict[str, dict] = {}
+    todas = carpeta.notas() if carpeta else {}
+    for f in fragmentos:
+        nombre = Path(f["ruta"]).name
+        if nombre not in por_nota:
+            n = todas.get(nombre)
+            por_nota[nombre] = {**(n.meta if n else {"nombre": nombre, "titulo": nombre.removesuffix(".md"), "grupos": ["otros"]}),
+                                "fuente": "inspo", "abrible": bool(n), "fragmentos": []}
+        # Texto plano, sin el encabezado de la sección (ya va en `encabezado`) ni la sintaxis de tablas y enlaces
+        texto = notas.legible(re.sub(r"\A#+ [^\n]*\n", "", f["texto"]))
+        por_nota[nombre]["fragmentos"].append({**{k: f[k] for k in ("encabezado", "linea_ini", "linea_fin")}, "texto": texto})
+    return list(por_nota.values())
+
+
 def _estados_cola() -> dict[str, str]:
     """Nombre de la nota -> estado de su pieza en la cola (analizado, usado...)."""
     return {Path(i["nota"]).name: i["estado"] for i in cola._leer()["items"].values() if i.get("nota")}
@@ -101,6 +138,7 @@ class _Panel(BaseHTTPRequestHandler):
     usuarios: set[str] = set()
     carpetas: dict[str, notas.Carpeta] = {}  # "inspo" y "bandeja", las que se hayan dado al arrancar
     web: dict[str, object] = {}
+    doll: str | None = None  # Python del entorno de Doll
 
     def _permitido(self) -> bool:
         quien = self.headers.get("Tailscale-User-Login")
@@ -159,6 +197,16 @@ class _Panel(BaseHTTPRequestHandler):
                 if n:
                     n["estado"] = _estados_cola().get(n["nombre"])
                 self._responder(200 if n else 404, n or {"error": "no existe esa nota"})
+        elif url.path == "/api/doll":
+            if not self.doll:
+                return self._responder(404, {"error": "el panel arrancó sin Doll (`--doll`)"})
+            if not (consulta := uno("q")):
+                return self._responder(400, {"error": "falta la consulta"})
+            try:
+                res = doll(self.doll, "buscar", consulta[:500], 30)
+            except BakerError as err:
+                return self._responder(502, {"error": str(err)})
+            self._responder(200, {"notas": _con_notas(res["fragmentos"], self.carpetas.get("inspo"))})
         else:
             self._responder(404, {"error": "no existe"})
 
@@ -187,6 +235,19 @@ class _Panel(BaseHTTPRequestHandler):
                 if tipo not in (None, "enlace", "bloqueo", "analisis"):
                     return self._responder(400, {"error": f"tipo desconocido: {tipo}"})
                 res = cola.reintentar(tipo)
+            elif self.path == "/api/doll/preguntar":  # POST: gasta GPU, un sitio ajeno no debe poder dispararlo
+                if not self.doll:
+                    return self._responder(404, {"error": "el panel arrancó sin Doll (`--doll`)"})
+                consulta = str(cuerpo.get("q") or "").strip()[:500]
+                if not consulta:
+                    return self._responder(400, {"error": "falta la pregunta"})
+                if not _PREGUNTA.acquire(blocking=False):
+                    return self._responder(409, {"error": "ya hay una pregunta en el horno; espera a que salga"})
+                try:
+                    r = doll(self.doll, "preguntar", consulta, 5)
+                finally:
+                    _PREGUNTA.release()
+                res = {**r, "notas": _con_notas(r.pop("fragmentos"), self.carpetas.get("inspo"))}
             else:
                 return self._responder(404, {"error": "no existe"})
         except (json.JSONDecodeError, AttributeError):
@@ -200,15 +261,20 @@ class _Panel(BaseHTTPRequestHandler):
             super().log_message(formato, *args)
 
 
-def configurar(logs: str | None = None, bandeja: str | None = None, inspo: str | None = None) -> None:
+def configurar(logs: str | None = None, bandeja: str | None = None, inspo: str | None = None,
+               doll_python: str | None = None) -> None:
+    _Panel.doll = doll_python
     _Panel.logs = Path(logs).expanduser() if logs else None
     _Panel.bandeja = Path(bandeja).expanduser() if bandeja else None
     _Panel.carpetas = {f: notas.Carpeta(Path(r).expanduser(), f) for f, r in (("inspo", inspo), ("bandeja", bandeja)) if r}
     _Panel.web = _estaticos()
 
 
-def servir(puerto: int = PUERTO, logs: str | None = None, bandeja: str | None = None, inspo: str | None = None) -> None:
-    configurar(logs, bandeja, inspo)
+def servir(puerto: int = PUERTO, logs: str | None = None, bandeja: str | None = None, inspo: str | None = None,
+           doll_python: str | None = None) -> None:
+    configurar(logs, bandeja, inspo, doll_python)
+    # Leer y plegar ~450 notas tarda unos segundos: se hace al arrancar, no en la primera búsqueda
+    threading.Thread(target=lambda: [c.notas() for c in _Panel.carpetas.values()], daemon=True).start()
     _Panel.usuarios = {u.strip() for u in os.environ.get("BAKERS_PANEL_USUARIOS", "").split(",") if u.strip()}
     with ThreadingHTTPServer(("127.0.0.1", puerto), _Panel) as s:
         print(f"[panel] http://127.0.0.1:{puerto} (publicar con `tailscale serve --bg --https={puerto} "

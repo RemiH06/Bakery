@@ -40,6 +40,7 @@ def main() -> None:
     cp.add_argument("--logs", help="carpeta con los .log de las tareas (p. ej. ~/bakery-jobs)")
     cp.add_argument("--bandeja", help="carpeta para los textos pegados sin enlaces (poemas, ideas), tal cual")
     cp.add_argument("--notas", help="carpeta de las notas de inspiración, para el explorador")
+    cp.add_argument("--doll", help="python del entorno de Doll, para buscar y preguntar en la inspo con Doll")
     ch = sub.add_parser("chat", help="Baker de atención a clientes: probar, ver escaladas, evaluar")
     chs = ch.add_subparsers(dest="accion", required=True)
     chs.add_parser("hablar", help="conversación nueva en la terminal (vacío o Ctrl+C para salir)").add_argument(
@@ -59,7 +60,7 @@ def main() -> None:
         elif a.cmd == "reel":
             res = reel.reel(a.fuentes, a.destino)
         elif a.cmd == "cola" and a.accion == "panel":
-            return panel.servir(a.puerto, a.logs, a.bandeja, a.notas)
+            return panel.servir(a.puerto, a.logs, a.bandeja, a.notas, a.doll)
         elif a.cmd == "cola":
             res = {"agregar": lambda: cola.agregar(a.archivo), "bajar": lambda: cola.bajar(a.tope),
                    "analizar": lambda: cola.analizar(a.destino, a.lote, a.modelo, a.min_libre, a.clases),

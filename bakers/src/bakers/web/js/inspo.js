@@ -1,5 +1,5 @@
 // Explorador de la inspo y la bandeja: filtro literal, pestañas por grupo (un pay de fruta por grupo) y visor.
-import { api, debounce, el, enlace, fecha, mes, resaltar, teclasPestanas } from "./util.js";
+import { api, el, enlace, fecha, mes, resaltar, teclasPestanas } from "./util.js";
 import { render, separar } from "./md.js";
 
 export const GRUPOS = [
@@ -40,23 +40,72 @@ export function crear(raiz, navegar) {
   const fichas = el("ol", { class: "fichas", "aria-label": "Notas" });
   const mas = el("button", { type: "button", class: "boton", hidden: true, onclick: () => { mostradas += POR_PAGINA; pintarFichas(); } });
   const hoja = el("article", { class: "hoja", "aria-label": "Nota", tabindex: "-1" });
-  const lista = el("div", { class: "lista", id: "panel-grupo", role: "tabpanel" }, cuantas, fichas, mas);
+  const respuesta = el("section", { class: "respuesta", "aria-live": "polite", hidden: true });
+  const lista = el("div", { class: "lista", id: "panel-grupo", role: "tabpanel" }, respuesta, cuantas, fichas, mas);
+  const ayuda = el("span", { id: "q-ayuda", class: "ayuda" });
+  const modos = el("div", { class: "segmento", role: "group", "aria-label": "Cómo buscar" },
+    ...[["Literal", null], ["Doll", "doll"]].map(([t, m]) => el("button", { type: "button", class: "boton", "data-modo": m || "",
+      onclick: () => cambiar({ modo: m, g: null, c: null, m: null, f: null }) }, t)));
+  const preguntar = el("button", { type: "button", class: "boton primario preguntar", onclick: () => hacerPregunta() }, "Preguntar a Doll");
 
   raiz.append(
     el("div", { class: "barra" },
       el("div", { class: "campo campo-q" },
         el("label", { for: "q" }, "Buscar en todas las notas"),
-        buscar,
-        el("span", { id: "q-ayuda", class: "ayuda" }, "Texto literal en cualquier parte de la nota, sin importar mayúsculas ni acentos.")),
-      el("div", { class: "campo" }, el("span", { class: "etiqueta", id: "fuente-t" }, "Cuaderno"), fuentes),
-      el("div", { class: "campo" }, el("label", { for: "clase" }, "Clase"), clase),
-      el("div", { class: "campo" }, el("label", { for: "mes" }, "Visto en"), meses)),
+        el("div", { class: "q-fila" }, buscar, preguntar),
+        ayuda),
+      el("div", { class: "campo" }, el("span", { class: "etiqueta", id: "modo-t" }, "Búsqueda"), modos),
+      el("div", { class: "campo solo-literal" }, el("span", { class: "etiqueta", id: "fuente-t" }, "Cuaderno"), fuentes),
+      el("div", { class: "campo solo-literal" }, el("label", { for: "clase" }, "Clase"), clase),
+      el("div", { class: "campo solo-literal" }, el("label", { for: "mes" }, "Visto en"), meses)),
     pestanas,
     el("div", { class: "mesa" }, lista, hoja));
   fuentes.setAttribute("aria-labelledby", "fuente-t");
+  modos.setAttribute("aria-labelledby", "modo-t");
 
   const cambiar = (cambios, push = false) => navegar("inspo", { ...estado, ...cambios }, push);
-  buscar.addEventListener("input", debounce(() => cambiar({ q: buscar.value || null, n: estado.n }), 220));
+  // Doll corre un proceso por búsqueda: espera a que se deje de escribir un poco más
+  let espera;
+  buscar.addEventListener("input", () => {
+    clearTimeout(espera);
+    espera = setTimeout(() => cambiar({ q: buscar.value || null, n: estado.n }), estado.modo === "doll" ? 700 : 220);
+  });
+  buscar.addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter" && estado.modo === "doll") { clearTimeout(espera); cambiar({ q: buscar.value || null }); }
+  });
+
+  // En modo Doll se resaltan las palabras de la consulta, no la frase: Doll no busca la frase literal
+  const terminos = () => estado.modo === "doll"
+    ? (estado.q || "").split(/[^\p{L}\p{N}@#]+/u).filter(t => t.length >= 4)
+    : [estado.q || ""];
+  const resaltarTodo = (raiz) => terminos().flatMap(t => resaltar(raiz, t));
+
+  async function hacerPregunta() {
+    const q = buscar.value.trim();
+    if (!q) { buscar.focus(); return; }
+    respuesta.hidden = false;
+    respuesta.replaceChildren(el("p", { class: "tenue" }, "Doll está pensando… Puede tardar un minuto si el horno está tibio."));
+    preguntar.disabled = true;
+    try {
+      const r = await api("/api/doll/preguntar", { q });
+      const nota = (ruta) => {
+        const nombre = ruta.split("/").pop();
+        return el("a", { href: `#inspo?${new URLSearchParams({ modo: "doll", q, n: nombre })}`,
+          onclick: (ev) => { ev.preventDefault(); cambiar({ q, n: nombre }, true); } }, nombre.replace(/\.md$/, ""));
+      };
+      respuesta.replaceChildren(
+        el("h3", {}, "Respuesta de Doll"),
+        r.fallo ? el("p", { class: "error" }, `Sin respuesta del modelo: ${r.fallo}. Abajo, lo que encontró.`)
+          : r.no_encontrado ? el("p", {}, "No encontrado en la inspo. Es una respuesta real: Doll no inventa.")
+          : el("p", { class: "dicho" }, r.respuesta),
+        r.citas.length ? el("ol", { class: "citas" }, r.citas.map(c => el("li", {}, el("q", {}, c.texto), " ", nota(c.ruta)))) : null,
+        r.citas.length ? el("p", { class: "ayuda" }, "Cada cita se comprobó contra el texto de la nota." +
+          (r.citas_descartadas ? ` Se descartaron ${r.citas_descartadas} que no aparecían.` : "")) : null);
+      if (r.fallo && r.notas.length) { resultados = { notas: r.notas, total: null }; pintarFichas(); }
+    } catch (e) {
+      respuesta.replaceChildren(el("p", { class: "error" }, e.message));
+    } finally { preguntar.disabled = false; }
+  }
   clase.addEventListener("change", () => cambiar({ c: clase.value || null }));
   meses.addEventListener("change", () => cambiar({ m: meses.value || null }));
   let focoEnPestanas = false;  // las pestañas se repintan con los conteos nuevos: el foco pasa a la activa
@@ -92,24 +141,36 @@ export function crear(raiz, navegar) {
   function ficha(n) {
     const activa = n.nombre === estado.n;
     const meta = [fecha(n.fecha), n.cuenta, n.clase, n.estado && n.estado !== "analizado" ? n.estado : null].filter(Boolean);
-    return el("li", { class: `ficha f-${FRUTA[n.grupos[0]] || "pan"}${activa ? " activa" : ""}` },
+    const contenido = [
+      el("span", { class: "pays" }, n.grupos.map(g => pay(FRUTA[g] || "pan"))),
+      el("span", { class: "titulo" }, n.titulo),
+      el("span", { class: "meta" }, meta.join(" · ") + (n.coincidencias > 1 ? ` · ${n.coincidencias} veces` : "")),
+      n.fragmento ? el("span", { class: "fragmento" }, n.fragmento) : null,
+      // Doll: cada fragmento con el encabezado de la sección donde salió
+      ...(n.fragmentos || []).slice(0, 2).map(f => {
+        const seccion = (f.encabezado || "").split(" > ").slice(1).join(" › ");  // Doll antepone el título de la nota
+        return el("span", { class: "fragmento" }, seccion ? el("span", { class: "seccion" }, `${seccion}: `) : null,
+          f.texto.replace(/^#+ .*\n/, "").replace(/\s+/g, " ").slice(0, 260));
+      }),
+    ];
+    const clase = `ficha f-${FRUTA[n.grupos[0]] || "pan"}${activa ? " activa" : ""}`;
+    if (n.abrible === false) return el("li", { class: clase }, el("div", { class: "no-abrible" }, ...contenido));
+    return el("li", { class: clase },
       el("a", { href: `#inspo?${new URLSearchParams(limpio({ ...estado, n: n.nombre }))}`, "aria-current": activa ? "true" : null,
         onclick: (ev) => { if (ev.metaKey || ev.ctrlKey) return; ev.preventDefault(); cambiar({ n: n.nombre }, true); } },
-        el("span", { class: "pays" }, n.grupos.map(g => pay(FRUTA[g] || "pan"))),
-        el("span", { class: "titulo" }, n.titulo),
-        el("span", { class: "meta" }, meta.join(" · ") + (n.coincidencias > 1 ? ` · ${n.coincidencias} veces` : "")),
-        n.fragmento ? el("span", { class: "fragmento" }, n.fragmento) : null));
+        ...contenido));
   }
 
   function pintarFichas() {
-    const d = resultados;
+    const d = resultados, doll = estado.modo === "doll";
     const vis = d.notas.slice(0, mostradas);
     fichas.replaceChildren(...vis.map(ficha));
-    if (estado.q) resaltar(fichas, estado.q);
+    if (estado.q) resaltarTodo(fichas);
     const sufijo = estado.q ? ` con «${estado.q}»` : "";
-    cuantas.textContent = d.notas.length ? `${d.notas.length} de ${d.total} notas${sufijo}`
-      : !d.total ? "Este cuaderno todavía no tiene notas."
-      : `Nada en el horno${sufijo}. Prueba con menos palabras, otra pestaña o sin filtros.`;
+    cuantas.textContent = doll && !estado.q ? "Escribe qué buscas. Doll ordena por relevancia, palabra por palabra, y suma notas enlazadas a la mejor."
+      : d.notas.length ? (doll ? `${d.notas.length} notas para «${estado.q}», de la más relevante a la menos` : `${d.notas.length} de ${d.total} notas${sufijo}`)
+      : !doll && !d.total ? "Este cuaderno todavía no tiene notas."
+      : `Nada en el horno${sufijo}. Prueba con menos palabras${doll ? " u otras" : ", otra pestaña o sin filtros"}.`;
     mas.hidden = d.notas.length <= mostradas;
     mas.textContent = `Mostrar ${Math.min(POR_PAGINA, d.notas.length - mostradas)} más`;
   }
@@ -117,9 +178,16 @@ export function crear(raiz, navegar) {
   async function cargarLista() {
     pedido?.abort();
     pedido = new AbortController();
-    const p = limpio({ fuente: estado.f || "inspo", q: estado.q, grupo: estado.g, clase: estado.c, mes: estado.m });
     raiz.setAttribute("aria-busy", "true");
+    respuesta.hidden = true;
     try {
+      if (estado.modo === "doll") {
+        resultados = estado.q ? await api(`/api/doll?${new URLSearchParams({ q: estado.q })}`, null, pedido.signal) : { notas: [] };
+        mostradas = POR_PAGINA;
+        pintarFichas();
+        return;
+      }
+      const p = limpio({ fuente: estado.f || "inspo", q: estado.q, grupo: estado.g, clase: estado.c, mes: estado.m });
       resultados = await api(`/api/notas?${new URLSearchParams(p)}`, null, pedido.signal);
       mostradas = POR_PAGINA;
       pintarControles(resultados);
@@ -186,7 +254,8 @@ export function crear(raiz, navegar) {
             el("button", { type: "button", class: "boton", "aria-label": "Coincidencia siguiente", onclick: () => saltar(1) }, "↓")) : null)),
       contenido);
     hoja.setAttribute("aria-labelledby", "nota-t");
-    marcas = estado.q ? resaltar(contenido, estado.q) : [];
+    marcas = estado.q ? resaltarTodo(contenido) : [];
+    marcas.sort((a, b) => a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1);
     marca = -1;
     const contador = hoja.querySelector(".contador");
     if (contador) contador.textContent = marcas.length ? `${marcas.length} en la nota` : "no aparece en el texto";
@@ -199,7 +268,14 @@ export function crear(raiz, navegar) {
       const antes = estado;
       estado = params;
       if (document.activeElement !== buscar) buscar.value = estado.q || "";
-      const clave = (e) => [e.f, e.q, e.g, e.c, e.m].join("\u0000");
+      const doll = estado.modo === "doll";
+      raiz.classList.toggle("modo-doll", doll);
+      for (const b of modos.children) b.setAttribute("aria-pressed", String((b.dataset.modo || null) === (estado.modo || null)));
+      ayuda.textContent = doll
+        ? "Doll busca por palabras, sin importar el orden ni los acentos, y ordena por relevancia. Enter busca; «Preguntar» responde con citas comprobadas."
+        : "Texto literal en cualquier parte de la nota, sin importar mayúsculas ni acentos.";
+      buscar.placeholder = doll ? "costos de entrenar modelos, fondos animados con shaders…" : "una palabra, una frase, @cuenta, un enlace…";
+      const clave = (e) => [e.modo, e.f, e.q, e.g, e.c, e.m].join("\u0000");
       if (!resultados || clave(antes) !== clave(estado)) await cargarLista();
       else if (antes.n !== estado.n) pintarFichas();
       await cargarNota();

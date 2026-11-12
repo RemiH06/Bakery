@@ -96,7 +96,7 @@ label, .etiqueta { display: block; font-size: 13px; color: var(--tenue); margin-
 .segmento { display: flex; gap: 6px; }
 
 /* ── Explorador ── */
-.barra { display: grid; grid-template-columns: minmax(0, 2.4fr) auto minmax(150px, 1fr) minmax(150px, 1fr); gap: 12px 16px; align-items: start; }
+.barra { display: grid; grid-template-columns: minmax(0, 2.4fr) auto auto minmax(140px, 1fr) minmax(140px, 1fr); gap: 12px 16px; align-items: start; }
 .campo-q input { font-size: 17px; min-height: 46px; font-family: var(--sans); }
 .campo-q .ayuda { display: block; margin-top: 4px; font-size: 12.5px; }
 .pestanas { display: flex; gap: 6px; margin: 18px 0 0; padding: 0 0 0 2px; overflow-x: auto; scrollbar-width: thin; border-bottom: 1px solid var(--borde); }
@@ -122,6 +122,18 @@ label, .etiqueta { display: block; font-size: 13px; color: var(--tenue); margin-
 .ficha .fragmento { font-size: 14px; color: color-mix(in srgb, var(--texto) 82%, var(--tenue)); overflow-wrap: anywhere;
   display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
 .lista > .boton { margin-top: 12px; width: 100%; }
+.q-fila { display: flex; gap: 8px; }
+.q-fila input { flex: 1; min-width: 0; }
+.inspo:not(.modo-doll) .preguntar, .modo-doll .solo-literal, .modo-doll .pestanas { display: none; }
+.ficha .no-abrible { display: grid; grid-template-columns: minmax(0, 1fr); gap: 3px; padding: 11px 14px 12px 15px; background: var(--bg2);
+  border: 1px dashed var(--borde2); border-left: 3px solid var(--fruta); border-radius: var(--radio); position: relative; }
+.ficha .seccion { font-family: var(--serif); font-style: italic; color: var(--slag); }
+.respuesta { margin: 0 0 14px; padding: 14px 16px; background: var(--papel); border: 1px solid var(--borde2);
+  border-left: 3px solid var(--mora); border-radius: var(--radio); }
+.respuesta h3 { font-size: 1.05rem; margin-bottom: 6px; }
+.respuesta .dicho { font-size: 15.5px; margin: 0 0 8px; }
+.citas { margin: 8px 0; padding-left: 1.2em; display: grid; gap: 6px; font-size: 14px; }
+.citas q { font-family: var(--serif); font-style: italic; }
 
 /* La hoja de lectura: papel con margen y perforaciones de cuaderno */
 .hoja { position: sticky; top: 12px; max-height: calc(100vh - 24px); overflow-y: auto; scrollbar-width: thin;
