@@ -2,6 +2,10 @@
 import { api, el, hora } from "./util.js";
 import * as inspo from "./inspo.js";
 import * as cola from "./cola.js";
+import { aplicar, crearDialogo } from "./colores.js";
+
+aplicar();  // los colores de los grupos que se eligieron en este navegador
+crearDialogo(document.getElementById("colores"));
 
 const HORNO = { alta: "caliente", media: "tibio", ninguna: "apagado" };
 const hojas = {

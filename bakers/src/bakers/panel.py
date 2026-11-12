@@ -250,8 +250,8 @@ class _Panel(BaseHTTPRequestHandler):
                 res = {**r, "notas": _con_notas(r.pop("fragmentos"), self.carpetas.get("inspo"))}
             else:
                 return self._responder(404, {"error": "no existe"})
-        except (json.JSONDecodeError, AttributeError):
-            return self._responder(400, {"error": "JSON inválido"})
+        except (json.JSONDecodeError, UnicodeDecodeError, AttributeError):  # p. ej. un cuerpo en cp1252
+            return self._responder(400, {"error": "JSON inválido (en UTF-8)"})
         except BakerError as err:
             return self._responder(500, {"error": str(err)})
         self._responder(200, res)

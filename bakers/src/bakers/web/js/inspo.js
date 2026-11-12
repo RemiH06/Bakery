@@ -9,15 +9,15 @@ export const GRUPOS = [
   { id: "AduSI", nombre: "Axiomas de una Sociedad Indiferente", fruta: "limon" },
   { id: "otros", nombre: "Otros destinos", fruta: "pan" },
 ];
-const FRUTA = Object.fromEntries(GRUPOS.map(g => [g.id, g.fruta]));
+const grupo = (g) => (GRUPOS.some(x => x.id === g) ? g : "otros");
 const POR_PAGINA = 60;
 const SVG = "http://www.w3.org/2000/svg";
 
-// Un pay visto desde arriba: corteza, relleno de la fruta del grupo y el enrejado
-export function pay(fruta, titulo) {
+// Un pay visto desde arriba: corteza, relleno del color del grupo y el enrejado
+export function pay(g, titulo) {
   const s = document.createElementNS(SVG, "svg");
   s.setAttribute("viewBox", "0 0 16 16");
-  s.setAttribute("class", `pay f-${fruta}`);
+  s.setAttribute("class", `pay g-${g}`);
   s.setAttribute("aria-hidden", "true");
   const forma = (tag, attrs) => { const n = document.createElementNS(SVG, tag); for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v); s.append(n); };
   forma("circle", { cx: 8, cy: 8, r: 7.2, class: "corteza" });
@@ -80,9 +80,24 @@ export function crear(raiz, navegar) {
     : [estado.q || ""];
   const resaltarTodo = (raiz) => terminos().flatMap(t => resaltar(raiz, t));
 
+  let preguntaDe = null;  // la respuesta se queda visible mientras la lista sea de la misma consulta
+
+  function porQueNo(r) {
+    if (r.faltan?.length)
+      return `Doll no llamó al modelo: la pregunta nombra ${r.faltan.map(n => `«${n}»`).join(", ")}, y eso no sale en lo que encontró. ` +
+        "Si es un nombre, escríbelo como aparece en la nota; si no, pruébalo en minúsculas.";
+    if (!r.intentos)
+      return "Doll no encontró notas con esas palabras. Prueba con otras o con el modo Literal.";
+    return `Bonsai leyó ${r.leidos} fragmentos y ninguno dice la respuesta con todas sus letras. Doll solo responde con citas ` +
+      "textuales: sirve para datos concretos («¿qué herramienta…?», «¿quién dijo…?»). Para «resume», «dame ideas» o «¿cuántas…?», " +
+      "la lista de abajo ya trae las notas que encontró.";
+  }
+
   async function hacerPregunta() {
     const q = buscar.value.trim();
     if (!q) { buscar.focus(); return; }
+    preguntaDe = q;
+    if (estado.q !== q) cambiar({ q });  // la lista de abajo muestra lo que Doll encontró para la misma consulta
     respuesta.hidden = false;
     respuesta.replaceChildren(el("p", { class: "tenue" }, "Doll está pensando… Puede tardar un minuto si el horno está tibio."));
     preguntar.disabled = true;
@@ -96,12 +111,11 @@ export function crear(raiz, navegar) {
       respuesta.replaceChildren(
         el("h3", {}, "Respuesta de Doll"),
         r.fallo ? el("p", { class: "error" }, `Sin respuesta del modelo: ${r.fallo}. Abajo, lo que encontró.`)
-          : r.no_encontrado ? el("p", {}, "No encontrado en la inspo. Es una respuesta real: Doll no inventa.")
+          : r.no_encontrado ? [el("p", {}, "No encontrado en la inspo. Es una respuesta real: Doll no inventa."), el("p", { class: "ayuda" }, porQueNo(r))]
           : el("p", { class: "dicho" }, r.respuesta),
         r.citas.length ? el("ol", { class: "citas" }, r.citas.map(c => el("li", {}, el("q", {}, c.texto), " ", nota(c.ruta)))) : null,
         r.citas.length ? el("p", { class: "ayuda" }, "Cada cita se comprobó contra el texto de la nota." +
           (r.citas_descartadas ? ` Se descartaron ${r.citas_descartadas} que no aparecían.` : "")) : null);
-      if (r.fallo && r.notas.length) { resultados = { notas: r.notas, total: null }; pintarFichas(); }
     } catch (e) {
       respuesta.replaceChildren(el("p", { class: "error" }, e.message));
     } finally { preguntar.disabled = false; }
@@ -129,10 +143,10 @@ export function crear(raiz, navegar) {
     const tabs = [{ id: null, nombre: "Todos los grupos", corto: "Todos" }, ...GRUPOS].map(g => {
       const n = g.id ? (d.conteo.grupos[g.id] || 0) : d.conteo.todos;
       const activa = (estado.g || null) === g.id;
-      return el("button", { type: "button", role: "tab", class: `pestana${g.fruta ? ` f-${g.fruta}` : ""}`, "data-grupo": g.id || "",
+      return el("button", { type: "button", role: "tab", class: `pestana${g.id ? ` g-${g.id}` : ""}`, "data-grupo": g.id || "",
         "aria-selected": String(activa), "aria-controls": "panel-grupo", tabindex: activa ? "0" : "-1", title: g.nombre,
         onclick: () => cambiar({ g: g.id }) },
-        g.fruta ? pay(g.fruta) : null, el("span", {}, g.corto || g.id), n != null ? el("span", { class: "n" }, String(n)) : null);
+        g.id ? pay(g.id) : null, el("span", {}, g.corto || g.id), n != null ? el("span", { class: "n" }, String(n)) : null);
     });
     pestanas.replaceChildren(...tabs);
     if (focoEnPestanas) { pestanas.querySelector('[aria-selected="true"]')?.focus(); focoEnPestanas = false; }
@@ -142,7 +156,7 @@ export function crear(raiz, navegar) {
     const activa = n.nombre === estado.n;
     const meta = [fecha(n.fecha), n.cuenta, n.clase, n.estado && n.estado !== "analizado" ? n.estado : null].filter(Boolean);
     const contenido = [
-      el("span", { class: "pays" }, n.grupos.map(g => pay(FRUTA[g] || "pan"))),
+      el("span", { class: "pays" }, n.grupos.map(g => pay(grupo(g)))),
       el("span", { class: "titulo" }, n.titulo),
       el("span", { class: "meta" }, meta.join(" · ") + (n.coincidencias > 1 ? ` · ${n.coincidencias} veces` : "")),
       n.fragmento ? el("span", { class: "fragmento" }, n.fragmento) : null,
@@ -153,7 +167,7 @@ export function crear(raiz, navegar) {
           f.texto.replace(/^#+ .*\n/, "").replace(/\s+/g, " ").slice(0, 260));
       }),
     ];
-    const clase = `ficha f-${FRUTA[n.grupos[0]] || "pan"}${activa ? " activa" : ""}`;
+    const clase = `ficha g-${grupo(n.grupos[0])}${activa ? " activa" : ""}`;
     if (n.abrible === false) return el("li", { class: clase }, el("div", { class: "no-abrible" }, ...contenido));
     return el("li", { class: clase },
       el("a", { href: `#inspo?${new URLSearchParams(limpio({ ...estado, n: n.nombre }))}`, "aria-current": activa ? "true" : null,
@@ -179,7 +193,7 @@ export function crear(raiz, navegar) {
     pedido?.abort();
     pedido = new AbortController();
     raiz.setAttribute("aria-busy", "true");
-    respuesta.hidden = true;
+    if (estado.q !== preguntaDe || estado.modo !== "doll") { respuesta.hidden = true; preguntaDe = null; }
     try {
       if (estado.modo === "doll") {
         resultados = estado.q ? await api(`/api/doll?${new URLSearchParams({ q: estado.q })}`, null, pedido.signal) : { notas: [] };
@@ -227,7 +241,7 @@ export function crear(raiz, navegar) {
   }
 
   function vacia() {
-    return el("div", { class: "hoja-vacia" }, pay("pan"), el("p", {}, "Abre una nota para leerla aquí."));
+    return el("div", { class: "hoja-vacia" }, pay("otros"), el("p", {}, "Abre una nota para leerla aquí."));
   }
 
   function pintarNota(n) {
@@ -242,7 +256,7 @@ export function crear(raiz, navegar) {
     hoja.replaceChildren(
       el("header", { class: "hoja-cab" },
         volver(),
-        el("div", { class: "pays" }, n.grupos.map(g => pay(FRUTA[g] || "pan"))),
+        el("div", { class: "pays" }, n.grupos.map(g => pay(grupo(g)))),
         el("h2", { id: "nota-t" }, n.titulo),
         el("p", { class: "meta" }, datos.join(" · ")),
         n.destinos.length ? el("p", { class: "destinos" }, "Destino: ", n.destinos.map((d, i) => [i ? ", " : "", el("span", { class: "wikilink" }, d)])) : null,
