@@ -257,7 +257,9 @@ dialog.colores::backdrop { background: color-mix(in srgb, var(--bg) 75%, transpa
 dialog.colores h2 { font-size: 1.35rem; }
 .colores-filas { display: grid; gap: 12px; }
 .color-grupo { margin: 0; padding: 10px 12px 12px; border: 1px solid var(--borde); border-left: 4px solid var(--fruta); border-radius: var(--radio); background: var(--papel); }
-.color-grupo legend { padding: 0 6px; font: 600 1rem var(--serif); }
+/* Con float, la legend queda dentro de la caja en vez de montarse sobre el borde superior */
+.color-grupo legend { float: left; width: 100%; padding: 0; margin: 0 0 4px; font: 600 1rem var(--serif); }
+.color-grupo legend + * { clear: both; }
 .color-grupo legend .pay { font-size: 1.1rem; }
 .color-grupo legend .tenue { font: 13px var(--sans); }
 .muestras { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 10px; }
