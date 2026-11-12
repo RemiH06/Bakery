@@ -1,5 +1,5 @@
 // Explorador de la inspo y la bandeja: filtro literal, pestañas por grupo (un pay de fruta por grupo) y visor.
-import { api, el, enlace, fecha, mes, resaltar, teclasPestanas } from "./util.js";
+import { api, el, enlace, fecha, mes, poner, resaltar, teclasPestanas } from "./util.js";
 import { render, separar } from "./md.js";
 
 export const GRUPOS = [
@@ -108,7 +108,7 @@ export function crear(raiz, navegar) {
         return el("a", { href: `#inspo?${new URLSearchParams({ modo: "doll", q, n: nombre })}`,
           onclick: (ev) => { ev.preventDefault(); cambiar({ q, n: nombre }, true); } }, nombre.replace(/\.md$/, ""));
       };
-      respuesta.replaceChildren(
+      poner(respuesta,
         el("h3", {}, "Respuesta de Doll"),
         r.fallo ? el("p", { class: "error" }, `Sin respuesta del modelo: ${r.fallo}. Abajo, lo que encontró.`)
           : r.no_encontrado ? [el("p", {}, "No encontrado en la inspo. Es una respuesta real: Doll no inventa."), el("p", { class: "ayuda" }, porQueNo(r))]

@@ -8,9 +8,15 @@ export function el(tag, props = {}, ...hijos) {
     else if (k.startsWith("on")) n.addEventListener(k.slice(2), v);
     else n.setAttribute(k, v === true ? "" : v);
   }
-  for (const h of hijos.flat(Infinity)) if (h != null && h !== "" && h !== false) n.append(h);
+  n.append(...limpios(hijos));
   return n;
 }
+
+// Arrays aplanados, sin null, "" ni false: lo que `el` acepta como hijos
+const limpios = (hijos) => hijos.flat(Infinity).filter(h => h != null && h !== "" && h !== false);
+
+// replaceChildren nativo convierte arrays y null en texto ("[object HTMLParagraphElement]", "null")
+export const poner = (n, ...hijos) => n.replaceChildren(...limpios(hijos));
 
 // Solo http(s): un `javascript:` o `data:` de una transcripción ajena se queda como texto
 export const esWeb = (url) => /^https?:\/\//i.test(url || "");

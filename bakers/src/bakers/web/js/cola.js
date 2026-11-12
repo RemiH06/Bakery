@@ -1,6 +1,6 @@
 // La cola de reels: indicadores y el camino de una pieza (que filtra), pegar enlaces o un texto, reintentar,
 // y en pestañas las piezas y el registro (logs y errores de descarga).
-import { api, el, enlace, hora, teclasPestanas } from "./util.js";
+import { api, el, enlace, hora, poner, teclasPestanas } from "./util.js";
 
 const ESTADOS = ["fallido", "bajado", "clasificar", "pendiente", "analizado", "usado"];
 
@@ -113,7 +113,7 @@ export function crear(raiz, refrescar) {
 
   // El filtro se elige arriba (el camino y el indicador de fallidos); aquí solo se dice cuál está puesto
   function pintarFiltros() {
-    filtros.replaceChildren(el("span", { class: "tenue" }, filtro === "todos" ? "Todas las piezas. Un paso del camino de arriba filtra por estado."
+    poner(filtros, el("span", { class: "tenue" }, filtro === "todos" ? "Todas las piezas. Un paso del camino de arriba filtra por estado."
       : `Solo «${filtro}».`),
       filtro === "todos" ? null : el("button", { type: "button", class: "boton", onclick: () => { filtro = "todos"; pintar(); } }, "Ver todas"));
   }
