@@ -181,8 +181,8 @@ export function crear(raiz, navegar) {
     fichas.replaceChildren(...vis.map(ficha));
     if (estado.q) resaltarTodo(fichas);
     const sufijo = estado.q ? ` con «${estado.q}»` : "";
-    cuantas.textContent = doll && !estado.q ? "Escribe qué buscas. Doll ordena por relevancia, palabra por palabra, y suma notas enlazadas a la mejor."
-      : d.notas.length ? (doll ? `${d.notas.length} notas para «${estado.q}», de la más relevante a la menos` : `${d.notas.length} de ${d.total} notas${sufijo}`)
+    cuantas.textContent = doll && !estado.q ? "Escribe qué buscas. Doll ordena por sentido: encuentra la idea aunque la nota use otras palabras."
+      : d.notas.length ? (doll ? `${d.notas.length} notas para «${estado.q}», de la más cercana a la menos${d.aviso ? " (por palabras: el modelo de sentido no respondió)" : ""}` : `${d.notas.length} de ${d.total} notas${sufijo}`)
       : !doll && !d.total ? "Este cuaderno todavía no tiene notas."
       : `Nada en el horno${sufijo}. Prueba con menos palabras${doll ? " u otras" : ", otra pestaña o sin filtros"}.`;
     mas.hidden = d.notas.length <= mostradas;

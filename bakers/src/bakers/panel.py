@@ -98,8 +98,9 @@ _PREGUNTA = threading.Lock()  # un `bake` a la vez: en paralelo, el servidor cor
 
 
 def doll(python: str, modo: str, consulta: str, k: int) -> dict:
-    """Corre el puente con el Python de Doll. `buscar` tarda lo que indexar las notas nuevas; `preguntar`, lo que
-    tarde el Baker `doll` (con la marcha `media` o un juego abierto, hasta un par de minutos)."""
+    """Corre el puente con el Python de Doll. `buscar` tarda lo que indexar las notas nuevas; `sentido`, además, lo
+    que tarde embeber sus fragmentos (unos 0.4 s cada uno en CPU); `preguntar`, lo que tarde el Baker `doll` (con la
+    marcha `media` o un juego abierto, hasta un par de minutos)."""
     try:
         # -X utf8: con -I no valen las variables PYTHON*, y en Windows stderr saldría en cp1252
         p = subprocess.run([python, "-I", "-X", "utf8", str(PUENTE), modo, DOLL_CORPUS, consulta, str(k)], capture_output=True,
@@ -203,10 +204,11 @@ class _Panel(BaseHTTPRequestHandler):
             if not (consulta := uno("q")):
                 return self._responder(400, {"error": "falta la consulta"})
             try:
-                res = doll(self.doll, "buscar", consulta[:500], 30)
+                res = doll(self.doll, "sentido", consulta[:500], 30)
             except BakerError as err:
                 return self._responder(502, {"error": str(err)})
-            self._responder(200, {"notas": _con_notas(res["fragmentos"], self.carpetas.get("inspo"))})
+            self._responder(200, {"notas": _con_notas(res["fragmentos"], self.carpetas.get("inspo")),
+                                  "aviso": res.get("aviso")})
         else:
             self._responder(404, {"error": "no existe"})
 

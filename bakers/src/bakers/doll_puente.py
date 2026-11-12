@@ -3,6 +3,7 @@ Python del entorno de Doll (`--doll` del panel), porque Doll depende de `bakers`
 volverlo circular. Solo usa la API de Doll que también usan su CLI y su MCP.
 
     <python de Doll> -I doll_puente.py buscar <corpus> <consulta> [k]
+    <python de Doll> -I doll_puente.py sentido <corpus> <consulta> [k]
     <python de Doll> -I doll_puente.py preguntar <corpus> <consulta> [k]
 """
 import json
@@ -27,6 +28,11 @@ def main() -> None:
     indice.indexar(con, corpus)  # solo reprocesa las notas que cambiaron
     if modo == "buscar":
         res = {"fragmentos": [_fragmento(f, corpus) for f in indice.buscar(con, consulta, k)]}
+    elif modo == "sentido":  # por sentido, solo en notas de terceros; `aviso` si cayó a FTS por falta de gateway
+        from doll import sentido
+
+        fragmentos, aviso = sentido.buscar(con, corpus, consulta, k)
+        res = {"fragmentos": [_fragmento(f, corpus) for f in fragmentos], "aviso": aviso}
     elif modo == "preguntar":
         r = preguntar(con, corpus, consulta, k)
         res = {"respuesta": r.texto, "no_encontrado": r.no_encontrado, "fallo": r.fallo,

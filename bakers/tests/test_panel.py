@@ -157,7 +157,7 @@ f = lambda ruta, enc: {"ruta": ruta, "encabezado": enc, "linea_ini": 3, "linea_f
 frs = [f("2026-10-30-poeta-anhelo.md", "Cita"), f("2026-10-30-poeta-anhelo.md", "Otra"), f("0. Clases de inspiración.md", "Clases")]
 if consulta == "truena":
     sys.exit("se cayó el índice")
-print(json.dumps({"fragmentos": frs} if modo == "buscar" else
+print(json.dumps({"fragmentos": frs, "aviso": None} if modo == "sentido" else
                  {"respuesta": "", "no_encontrado": True, "fallo": None, "citas_descartadas": 0, "intentos": 0,
                   "faltan": ["Zacarías"], "citas": [], "fragmentos": []} if "Zacarías" in consulta else
                  {"respuesta": "Arde.", "no_encontrado": False, "fallo": None, "citas_descartadas": 0, "faltan": [],
@@ -175,7 +175,7 @@ def test_doll_por_el_puente(con_notas, monkeypatch, tmp_path):
     a, b = r["notas"]  # agrupados por nota, en el orden de Doll
     assert (a["titulo"], a["abrible"], [x["encabezado"] for x in a["fragmentos"]]) == ("Sobre el anhelo", True, ["Cita", "Otra"])
     assert a["fragmentos"][0]["texto"] == "página que arde" and a["grupos"] == ["AyP", "100"]
-    assert (b["nombre"], b["abrible"]) == ("0. Clases de inspiración.md", False)
+    assert (b["nombre"], b["abrible"]) == ("0. Clases de inspiración.md", False) and r["aviso"] is None
     assert httpx.get(f"{con_notas}/api/doll", headers=YO, params={"q": "truena"}).json()["error"].endswith("se cayó el índice")
     assert httpx.get(f"{con_notas}/api/doll", headers=YO, params={"q": " "}).status_code == 400
     p = httpx.post(f"{con_notas}/api/doll/preguntar", headers=YO, json={"q": "¿qué arde?"}, timeout=30).json()
