@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0E0A06">
+<meta name="robots" content="noindex, nofollow">
+<title>Bakery</title>
+<link rel="icon" href="/web/pay.svg" type="image/svg+xml">
+<link rel="preload" href="/web/fuentes/inter-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/web/fuentes/fraunces-600-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/web/panel.css">
+<script type="module" src="/web/js/app.js"></script>
+</head>
+<body>
+<a class="saltar" href="#contenido">Saltar al contenido</a>
+<header class="cabecera">
+  <div class="marca">
+    <svg class="pay f-brasa" viewBox="0 0 16 16" aria-hidden="true"><circle class="corteza" cx="8" cy="8" r="7.2"/><circle class="relleno" cx="8" cy="8" r="5.2"/><path class="reja" d="M6.2 3.2v9.6M9.8 3.2v9.6M3.2 6.2h9.6M3.2 9.8h9.6"/></svg>
+    <div>
+      <h1>Bakery</h1>
+      <p class="lema">Pi caliente de frutas todos los días, a todas horas</p>
+    </div>
+  </div>
+  <p id="horno" class="horno" role="status" data-marcha="otra"><span>Horno…</span></p>
+</header>
+<div class="cuaderno">
+  <nav class="separadores" aria-label="Secciones">
+    <a id="ir-inspo" href="#inspo" class="separador">Inspo</a>
+    <a id="ir-cola" href="#cola" class="separador">Cola</a>
+  </nav>
+  <main id="contenido" class="hoja-vista">
+    <section id="v-inspo" class="vista inspo" aria-label="Explorador de la inspo"></section>
+    <section id="v-cola" class="vista cola" aria-label="Cola de reels" hidden></section>
+  </main>
+</div>
+<noscript><p class="aviso">El panel necesita JavaScript.</p></noscript>
+</body>
+</html>

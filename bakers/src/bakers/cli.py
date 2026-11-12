@@ -35,10 +35,11 @@ def main() -> None:
     cs.add_parser("estado", help="bajados, pendientes, fallidos y próximo intento")
     cs.add_parser("reintentar", help="regresa los fallidos a la cola").add_argument(
         "--tipo", choices=("enlace", "bloqueo", "analisis"), help="solo los de este error (por defecto, todos)")
-    cp = cs.add_parser("panel", help="página con el estado y una caja para pegar enlaces, para el tailnet")
+    cp = cs.add_parser("panel", help="panel de control: explorador de la inspo y la cola, para el tailnet")
     cp.add_argument("--puerto", type=int, default=panel.PUERTO)
     cp.add_argument("--logs", help="carpeta con los .log de las tareas (p. ej. ~/bakery-jobs)")
     cp.add_argument("--bandeja", help="carpeta para los textos pegados sin enlaces (poemas, ideas), tal cual")
+    cp.add_argument("--notas", help="carpeta de las notas de inspiración, para el explorador")
     ch = sub.add_parser("chat", help="Baker de atención a clientes: probar, ver escaladas, evaluar")
     chs = ch.add_subparsers(dest="accion", required=True)
     chs.add_parser("hablar", help="conversación nueva en la terminal (vacío o Ctrl+C para salir)").add_argument(
@@ -58,7 +59,7 @@ def main() -> None:
         elif a.cmd == "reel":
             res = reel.reel(a.fuentes, a.destino)
         elif a.cmd == "cola" and a.accion == "panel":
-            return panel.servir(a.puerto, a.logs, a.bandeja)
+            return panel.servir(a.puerto, a.logs, a.bandeja, a.notas)
         elif a.cmd == "cola":
             res = {"agregar": lambda: cola.agregar(a.archivo), "bajar": lambda: cola.bajar(a.tope),
                    "analizar": lambda: cola.analizar(a.destino, a.lote, a.modelo, a.min_libre, a.clases),

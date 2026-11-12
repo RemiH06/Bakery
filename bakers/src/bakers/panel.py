@@ -1,10 +1,12 @@
-"""Panel de la cola: estado con todos los detalles y una caja para pegar enlaces, solo para el tailnet. Un texto
-pegado sin ningún enlace (un poema, un aforismo, una idea) no va a la cola: se guarda tal cual en la bandeja.
+"""Panel de control de Bakery, solo para el tailnet: explorador de la inspo y la bandeja, y la cola (estado con
+todos los detalles y una caja para pegar enlaces). Un texto pegado sin ningún enlace (un poema, un aforismo, una
+idea) no va a la cola: se guarda tal cual en la bandeja.
 
 Escucha en 127.0.0.1 y lo publica `tailscale serve`, que agrega `Tailscale-User-Login` con quien entra: sin ese
 encabezado (algo que no llegó por el tailnet) responde 403, y con `BAKERS_PANEL_USUARIOS` (logins separados por
 coma) solo deja pasar a esos. Las acciones van por POST con JSON: un sitio ajeno abierto en el navegador no
 puede mandarlas sin un preflight de CORS que este servidor nunca contesta. Biblioteca estándar, sin dependencias.
+La página y sus fuentes salen de `web/`, sin nada externo: la CSP no deja cargar ni ejecutar otra cosa.
 """
 import json
 import os
@@ -13,14 +15,31 @@ from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.resources import files
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
-from . import cola, core, reel
+from . import cola, core, notas, reel
 from .core import BakerError
 
 PUERTO = 8093  # registrado en 48.SkillShot/PORTS.md
 MAX_CUERPO = 64_000
 RENGLONES = 40  # de cada log y de errores.jsonl
 LOGS = ("cola", "analizar", "panel")  # los de job.ps1 que tocan la cola; ahí también hay pruebas viejas
+WEB = files("bakers").joinpath("web")
+TIPOS = {".html": "text/html", ".css": "text/css", ".js": "text/javascript", ".woff2": "font/woff2",
+         ".svg": "image/svg+xml", ".txt": "text/plain"}
+CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; "
+       "base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
+
+
+def _estaticos() -> dict[str, object]:
+    """Lista blanca de `web/` (ruta relativa con `/` -> archivo): una petición solo puede pedir lo que está aquí."""
+    def recorrer(d, pre=""):
+        for x in d.iterdir():
+            if x.is_dir():
+                yield from recorrer(x, f"{pre}{x.name}/")
+            elif Path(x.name).suffix in TIPOS:
+                yield f"{pre}{x.name}", x
+    return dict(recorrer(WEB))
 
 
 def guardar_texto(texto: str, bandeja: Path, pista: str | None = None) -> Path:
@@ -71,10 +90,17 @@ def datos(logs: Path | None = None) -> dict:
             "logs": {n: _cola_de(logs / f"{n}.log") for n in LOGS if (logs / f"{n}.log").is_file()} if logs else {}}
 
 
+def _estados_cola() -> dict[str, str]:
+    """Nombre de la nota -> estado de su pieza en la cola (analizado, usado...)."""
+    return {Path(i["nota"]).name: i["estado"] for i in cola._leer()["items"].values() if i.get("nota")}
+
+
 class _Panel(BaseHTTPRequestHandler):
     logs: Path | None = None
     bandeja: Path | None = None
     usuarios: set[str] = set()
+    carpetas: dict[str, notas.Carpeta] = {}  # "inspo" y "bandeja", las que se hayan dado al arrancar
+    web: dict[str, object] = {}
 
     def _permitido(self) -> bool:
         quien = self.headers.get("Tailscale-User-Login")
@@ -83,25 +109,56 @@ class _Panel(BaseHTTPRequestHandler):
             return False
         return True
 
-    def _responder(self, codigo: int, cuerpo: dict | str, tipo: str = "application/json") -> None:
-        datos_ = (cuerpo if isinstance(cuerpo, str) else json.dumps(cuerpo, ensure_ascii=False)).encode()
+    def _responder(self, codigo: int, cuerpo: dict | str | bytes, tipo: str = "application/json",
+                   cache: str = "no-store") -> None:
+        if isinstance(cuerpo, dict):
+            cuerpo = json.dumps(cuerpo, ensure_ascii=False)
+        datos_ = cuerpo.encode() if isinstance(cuerpo, str) else cuerpo
         self.send_response(codigo)
-        self.send_header("Content-Type", f"{tipo}; charset=utf-8")
+        self.send_header("Content-Type", tipo if tipo.startswith("font/") else f"{tipo}; charset=utf-8")
         self.send_header("Content-Length", str(len(datos_)))
-        self.send_header("Cache-Control", "no-store")
+        self.send_header("Cache-Control", cache)
         self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; "
-                                                    "script-src 'self' 'unsafe-inline'; frame-ancestors 'none'")
+        self.send_header("Referrer-Policy", "no-referrer")  # un enlace a Instagram no se lleva la URL del panel
+        self.send_header("Content-Security-Policy", CSP)
         self.end_headers()
         self.wfile.write(datos_)
+
+    def _archivo(self, nombre: str) -> None:
+        if not (x := self.web.get(nombre)):
+            return self._responder(404, {"error": "no existe"})
+        # Las fuentes no cambian; el resto se revalida en cada carga para que un `git pull` se vea de inmediato
+        cache = "public, max-age=604800, immutable" if nombre.startswith("fuentes/") else "no-cache"
+        self._responder(200, x.read_bytes(), TIPOS[Path(nombre).suffix], cache)
+
+    def _carpeta(self, q: dict) -> notas.Carpeta | None:
+        fuente = q.get("fuente", ["inspo"])[0]
+        if not (c := self.carpetas.get(fuente)):
+            self._responder(404, {"error": f"sin carpeta de notas para «{fuente}» (`--notas`, `--bandeja`)"})
+        return c
 
     def do_GET(self) -> None:
         if not self._permitido():
             return
-        if self.path == "/":
-            self._responder(200, files("bakers").joinpath("panel.html").read_text("utf-8"), "text/html")
-        elif self.path == "/api/estado":
+        url = urlsplit(self.path)
+        q = parse_qs(url.query)
+        uno = lambda k: (q.get(k, [""])[0].strip() or None)  # noqa: E731
+        if url.path == "/":
+            self._archivo("index.html")
+        elif url.path.startswith("/web/"):
+            self._archivo(url.path.removeprefix("/web/"))
+        elif url.path == "/api/estado":
             self._responder(200, datos(self.logs))
+        elif url.path == "/api/notas":
+            if c := self._carpeta(q):
+                res = notas.buscar(c, uno("q") or "", uno("grupo"), uno("clase"), uno("mes"), _estados_cola())
+                self._responder(200, {**res, "fuentes": list(self.carpetas)})
+        elif url.path == "/api/nota":
+            if c := self._carpeta(q):
+                n = c.nota(uno("nombre") or "")
+                if n:
+                    n["estado"] = _estados_cola().get(n["nombre"])
+                self._responder(200 if n else 404, n or {"error": "no existe esa nota"})
         else:
             self._responder(404, {"error": "no existe"})
 
@@ -143,9 +200,15 @@ class _Panel(BaseHTTPRequestHandler):
             super().log_message(formato, *args)
 
 
-def servir(puerto: int = PUERTO, logs: str | None = None, bandeja: str | None = None) -> None:
+def configurar(logs: str | None = None, bandeja: str | None = None, inspo: str | None = None) -> None:
     _Panel.logs = Path(logs).expanduser() if logs else None
     _Panel.bandeja = Path(bandeja).expanduser() if bandeja else None
+    _Panel.carpetas = {f: notas.Carpeta(Path(r).expanduser(), f) for f, r in (("inspo", inspo), ("bandeja", bandeja)) if r}
+    _Panel.web = _estaticos()
+
+
+def servir(puerto: int = PUERTO, logs: str | None = None, bandeja: str | None = None, inspo: str | None = None) -> None:
+    configurar(logs, bandeja, inspo)
     _Panel.usuarios = {u.strip() for u in os.environ.get("BAKERS_PANEL_USUARIOS", "").split(",") if u.strip()}
     with ThreadingHTTPServer(("127.0.0.1", puerto), _Panel) as s:
         print(f"[panel] http://127.0.0.1:{puerto} (publicar con `tailscale serve --bg --https={puerto} "
