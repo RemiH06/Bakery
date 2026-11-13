@@ -1,6 +1,6 @@
 # Acceso remoto a Pixilate
 
-Scripts por plataforma: [`windows/`](windows/) (Pixilate: `pixilate-setup.ps1`, `job.ps1`) y [`debian/`](debian/) (las Pi: `pi-setup.sh`). `aerilate.pub` es común.
+Scripts por plataforma: [`windows/`](windows/) (Pixilate: `pixilate-setup.ps1`, `job.ps1`) y [`debian/`](debian/) (las Pi: `pi-setup.sh` y `agente-setup.sh`). `aerilate.pub` es común.
 
 Aerilate entra a Pixilate por SSH dentro de Tailscale: sin abrir puertos en el router, funciona con CGNAT, en redes ajenas (escuela, cafeterías) y también en casa (en la misma red Tailscale conecta directo por la LAN, sin dar la vuelta por internet).
 
@@ -42,7 +42,7 @@ Cerrar SSH mata lo que se lanzó en la sesión. `job.ps1` (corre en Pixilate) lo
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\remote\windows\job.ps1 start <nombre> <carpeta> "<comando>"
 # -AtStartup: además al arrancar Windows · -Diario HH:mm: cada día a esa hora, sin lanzarlo ahora
-# list · log <nombre> -Tail 50 · stop <nombre>
+# list · log <nombre> -Tail 50 · stop <nombre> (la borra) · kill <nombre> (la detiene y la deja registrada)
 ```
 
 Logs en `~\bakery-jobs\<nombre>.log`.
@@ -56,6 +56,16 @@ remote/debian/pi-setup.sh AA:BB:CC:DD:EE:FF   # la MAC del resumen
 ```
 
 Desde Aerilate: `ssh <pi> wake-pixilate`, esperar ~1 min, `ssh pixilate`. Apagar al terminar: `ssh pixilate "shutdown /s /t 0"`.
+
+## 4. Agente de máquina (cada Pi)
+
+Para la hoja "Máquinas" del panel de los Bakers. En la Pi, con `agente.py` y este script en la misma carpeta (o desde un clon):
+
+```bash
+sudo remote/debian/agente-setup.sh   # la primera vez deja /etc/bakery-agente.toml: llénalo y vuelve a correrlo
+```
+
+Crea el usuario `bakery-agente` (sin shell ni home, en `systemd-journal` para leer logs), copia el agente a `/opt/bakery-agente` (de root: el usuario de siempre no puede cambiar el código del servicio), genera la regla de polkit que solo le deja iniciar, detener y reiniciar las unidades de `acciones`, instala la unidad `bakery-agente` endurecida (`NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome`, 128 MB) y la publica solo al tailnet en el 8094. Volver a correrlo al actualizar el agente o cambiar `acciones`. Verificar: `sudo -u bakery-agente systemctl --no-ask-password restart ssh` debe dar `Access denied`. Apagar: `sudo tailscale serve --https=8094 off && sudo systemctl disable --now bakery-agente`.
 
 ## Seguridad
 
