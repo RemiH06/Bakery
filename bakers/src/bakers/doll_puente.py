@@ -2,9 +2,11 @@
 Python del entorno de Doll (`--doll` del panel), porque Doll depende de `bakers` y el panel no puede importarlo sin
 volverlo circular. Solo usa la API de Doll que también usan su CLI y su MCP.
 
-    <python de Doll> -I doll_puente.py buscar <corpus> <consulta> [k]
-    <python de Doll> -I doll_puente.py sentido <corpus> <consulta> [k]
-    <python de Doll> -I doll_puente.py preguntar <corpus> <consulta> [k]
+    <python de Doll> -I doll_puente.py buscar <consulta> [k]
+    <python de Doll> -I doll_puente.py sentido <consulta> [k]
+    <python de Doll> -I doll_puente.py preguntar <consulta> [k]
+
+Busca en el floppy montado en la máquina del panel (`doll montar inspo`).
 """
 import json
 import sys
@@ -21,10 +23,10 @@ def _fragmento(f, corpus) -> dict:
 
 def main() -> None:
     sys.stdout.reconfigure(encoding="utf-8")
-    modo, nombre, consulta, *resto = sys.argv[1:]
+    modo, consulta, *resto = sys.argv[1:]
     k = int(resto[0]) if resto else 10
-    corpus = corpus_mod.cargar(nombre)
-    con = indice.abrir(corpus_mod.home() / f"{nombre}.db")
+    corpus = corpus_mod.cargar()
+    con = indice.abrir(corpus.indice)
     indice.indexar(con, corpus)  # solo reprocesa las notas que cambiaron
     if modo == "buscar":
         res = {"fragmentos": [_fragmento(f, corpus) for f in indice.buscar(con, consulta, k)]}

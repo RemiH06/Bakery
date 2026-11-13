@@ -93,7 +93,6 @@ def datos(logs: Path | None = None) -> dict:
 
 
 PUENTE = Path(__file__).with_name("doll_puente.py")
-DOLL_CORPUS = "inspo"  # en ~/.doll/corpus.toml de la máquina del panel, con la carpeta de `--notas` como ruta
 _PREGUNTA = threading.Lock()  # un `bake` a la vez: en paralelo, el servidor corre los dos y uno se pierde
 
 
@@ -103,7 +102,7 @@ def doll(python: str, modo: str, consulta: str, k: int) -> dict:
     marcha `media` o un juego abierto, hasta un par de minutos)."""
     try:
         # -X utf8: con -I no valen las variables PYTHON*, y en Windows stderr saldría en cp1252
-        p = subprocess.run([python, "-I", "-X", "utf8", str(PUENTE), modo, DOLL_CORPUS, consulta, str(k)], capture_output=True,
+        p = subprocess.run([python, "-I", "-X", "utf8", str(PUENTE), modo, consulta, str(k)], capture_output=True,
                            text=True, encoding="utf-8", errors="replace", timeout=60 if modo == "buscar" else 300)
     except (OSError, subprocess.TimeoutExpired) as err:
         raise BakerError(f"Doll no respondió: {err}") from None

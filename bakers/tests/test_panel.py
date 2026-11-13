@@ -152,7 +152,7 @@ def test_nota_solo_por_nombre_del_indice(con_notas, tmp_path):
 
 
 FALSO_DOLL = r'''import json, sys
-modo, corpus, consulta, k = sys.argv[1:]
+modo, consulta, k = sys.argv[1:]
 f = lambda ruta, enc: {"ruta": ruta, "encabezado": enc, "linea_ini": 3, "linea_fin": 5, "texto": consulta, "terceros": True}
 frs = [f("2026-10-30-poeta-anhelo.md", "Cita"), f("2026-10-30-poeta-anhelo.md", "Otra"), f("0. Clases de inspiración.md", "Clases")]
 if consulta == "truena":
