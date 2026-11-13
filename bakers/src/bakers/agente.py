@@ -49,7 +49,8 @@ VERBOS = {"iniciar": "start", "detener": "stop", "reiniciar": "restart"}
 RENGLONES = 60
 MAX_CUERPO = 4096
 CONFIG = Path.home() / ".bakers" / "agente.toml" if WINDOWS else Path("/etc/bakery-agente.toml")
-JOB = Path(__file__).resolve().parents[3] / "remote" / "windows" / "job.ps1"  # el del clon, junto al paquete
+# El job.ps1 del clon, junto al paquete (solo Windows). Sin `.parents[3]`: en /opt/bakery-agente no hay tres niveles
+JOB = Path(__file__).resolve().parent / ".." / ".." / ".." / "remote" / "windows" / "job.ps1"
 JOBS = Path.home() / "bakery-jobs"  # logs de job.ps1
 _ACCION = threading.Lock()  # una acción a la vez: dos clics seguidos no lanzan dos reinicios
 
@@ -253,7 +254,7 @@ def _bloques_systemctl(salida: str) -> list[dict[str, str]]:
 def _servicios_linux(cfg: Config) -> list[dict]:
     if not cfg.servicios:
         return []
-    salida = _correr(["systemctl", "show", "--no-pager", "--timestamp=iso",
+    salida = _correr(["systemctl", "show", "--no-pager", "--timestamp=unix",  # `iso` no existe en todas las versiones
                       "-p", "Id,Description,LoadState,ActiveState,SubState,Result,ActiveEnterTimestamp,InactiveEnterTimestamp",
                       *[f"{s}.service" for s in cfg.servicios]])
     res = []
@@ -263,7 +264,9 @@ def _servicios_linux(cfg: Config) -> list[dict]:
         detalle = b.get("Description", "") if existe else "no existe esa unidad"
         if existe and b.get("Result") not in (None, "", "success"):
             detalle += f" · último resultado: {b['Result']}"
-        desde = b.get("ActiveEnterTimestamp" if activo == "active" else "InactiveEnterTimestamp") or None
+        sello = b.get("ActiveEnterTimestamp" if activo == "active" else "InactiveEnterTimestamp") or ""
+        desde = (datetime.fromtimestamp(int(sello[1:])).astimezone().isoformat(timespec="minutes")
+                 if re.fullmatch(r"@\d+", sello) else None)  # `@1763059600`
         res.append({"nombre": nombre, "estado": _ESTADO_UNIDAD.get(activo, activo) if existe else "no existe",
                     "detalle": f"{b.get('SubState', '')} · {detalle}".strip(" ·"), "desde": desde, "siguiente": None,
                     "controlable": existe and nombre in cfg.acciones})

@@ -35,7 +35,7 @@ LoadState=loaded
 ActiveState=active
 SubState=running
 Result=success
-ActiveEnterTimestamp=2026-11-13 00:23:01 CST
+ActiveEnterTimestamp=@1763014981
 InactiveEnterTimestamp=
 
 Id=web.service
@@ -58,7 +58,7 @@ def test_servicios_linux(monkeypatch):
     monkeypatch.setattr(agente, "_correr", lambda argv, timeout=30: SHOW)
     cfg = agente.Config("fresa", servicios=("dns", "web", "nada"), acciones=("dns", "nada"))
     dns, web, nada = agente._servicios_linux(cfg)
-    assert (dns["estado"], dns["desde"], dns["controlable"]) == ("activo", "2026-11-13 00:23:01 CST", True)
+    assert (dns["estado"], dns["desde"], dns["controlable"]) == ("activo", agente.datetime.fromtimestamp(1763014981).astimezone().isoformat(timespec="minutes"), True)
     assert (web["estado"], web["controlable"]) == ("falló", False) and "exit-code" in web["detalle"]
     assert (nada["estado"], nada["controlable"]) == ("no existe", False)  # aunque esté en acciones
 
