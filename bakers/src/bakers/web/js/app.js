@@ -57,7 +57,7 @@ async function refrescar() {
 
 hojas.inspo.vista = inspo.crear(hojas.inspo.raiz, navegar);
 hojas.cola.vista = cola.crear(hojas.cola.raiz, refrescar);
-hojas.maquinas.vista = maquinas.crear(hojas.maquinas.raiz);
+hojas.maquinas.vista = maquinas.crear(hojas.maquinas.raiz, navegar);
 for (const id of Object.keys(hojas)) {
   document.getElementById(`ir-${id}`).addEventListener("click", (ev) => {
     if (ev.metaKey || ev.ctrlKey) return;

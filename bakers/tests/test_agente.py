@@ -131,3 +131,14 @@ def test_recursos_de_esta_maquina():
 def test_orden_real(tmp_path, monkeypatch):
     cfg = agente.Config("fresa", ordenes={"hola": (sys.executable, "-c", "print('hola')")})
     assert agente.orden(cfg, "hola") == {"orden": "hola", "salida": "hola"}
+
+
+def test_historial_solo_con_las_series_de_la_maquina(monkeypatch):
+    for k in agente._historial:
+        monkeypatch.setitem(agente._historial, k, agente.deque(maxlen=agente.MUESTRAS))
+    monkeypatch.setattr(agente, "_gpu", lambda: None)  # sin GPU: ni uso ni VRAM en las gráficas
+    agente._muestra()
+    agente._muestra()
+    h = agente.historial()
+    assert len(h["t"]) == len(h["cpu"]) == len(h["ram"]) == 2 and "gpu" not in h and "vram" not in h
+    assert agente.recursos()["gpu"] is None

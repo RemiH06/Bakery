@@ -228,6 +228,45 @@ label, .etiqueta { display: block; font-size: 13px; color: var(--tenue); margin-
   font: 12.5px/1.4 var(--mono); max-height: 360px; }
 details summary { cursor: pointer; padding: 6px 0; min-height: 32px; }
 
+/* ── Máquinas: una a la vez, como el rendimiento del Administrador de tareas ── */
+.barra-maquinas { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.barra-maquinas label { display: inline; margin: 0; }
+.barra-maquinas select { width: auto; min-width: 12em; max-width: 100%; }
+.rendimiento { display: grid; grid-template-columns: minmax(210px, 280px) minmax(0, 1fr); gap: 16px; }
+.recursos { display: grid; gap: 6px; align-content: start; }
+.recurso { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 10px; align-items: center; text-align: left; padding: 8px 10px;
+  color: var(--texto); font: 14px var(--sans); background: var(--bg2); border: 1px solid var(--borde); border-radius: var(--radio); cursor: pointer; }
+.recurso:hover { border-color: var(--borde2); }
+.recurso[aria-pressed="true"] { border-color: var(--acento); background: color-mix(in srgb, var(--acento) 12%, var(--bg2)); }
+.recurso .mini { display: block; height: 44px; background: var(--bg); border: 1px solid var(--borde); }
+.recurso .texto { display: grid; gap: 1px; min-width: 0; }
+.recurso .texto b, .recurso .texto span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.recurso .texto span { font: 12.5px var(--mono); }
+.recurso.disco { grid-template-columns: minmax(0, 1fr); cursor: default; }
+.medidor.lleno > span { background: var(--fallido); }
+.traza { display: block; width: 100%; height: 100%; }
+.traza .linea { fill: none; stroke: var(--acento); stroke-width: 2; stroke-linejoin: round; }
+.recurso .traza .linea { stroke-width: 1.5; }
+.traza .area { fill: color-mix(in srgb, var(--acento) 18%, transparent); }
+.traza .rejilla { stroke: var(--borde); stroke-width: 1; }
+.principal { min-width: 0; }
+.grafica-grande { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: 240px auto; gap: 4px 8px; }
+.lienzo { position: relative; grid-column: 1; grid-row: 1; background: var(--bg); border: 1px solid var(--borde); border-radius: var(--radio);
+  overflow: hidden; touch-action: pan-y; }
+.eje-y { grid-column: 2; grid-row: 1; display: flex; flex-direction: column; justify-content: space-between; font: 12px var(--mono); color: var(--tenue); }
+.eje-x { grid-column: 1; grid-row: 2; display: flex; justify-content: space-between; font: 12px var(--mono); color: var(--tenue); }
+.cruz { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--tenue); pointer-events: none; }
+.punto-cruz { position: absolute; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; background: var(--acento);
+  box-shadow: 0 0 0 2px var(--bg); pointer-events: none; }
+.globo { position: absolute; top: 6px; padding: 3px 8px; font: 12.5px var(--mono); color: var(--texto); background: var(--hoja);
+  border: 1px solid var(--borde2); border-radius: var(--radio); white-space: nowrap; pointer-events: none; }
+.detalle { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px 16px; margin: 14px 0 0; }
+.detalle dt { font-size: 12.5px; color: var(--tenue); }
+.detalle dd { margin: 0; font: 500 14px var(--mono); overflow-wrap: anywhere; }
+.maq-abajo { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+.log-maquina pre { max-height: 460px; margin: 0; }
+.log-maquina h3 { margin: 0; }
+
 /* ── Teléfono y ventanas angostas: una columna; la nota abierta ocupa la hoja ── */
 @media (max-width: 979px) {
   .barra { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
@@ -237,6 +276,10 @@ details summary { cursor: pointer; padding: 6px 0; min-height: 32px; }
   .inspo:not(.con-nota) .hoja { display: none; }
   .hoja { position: relative; top: 0; max-height: none; overflow: visible; }
   .volver { display: inline-flex; }
+  .rendimiento, .maq-abajo { grid-template-columns: minmax(0, 1fr); }
+  .recursos { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .recurso { grid-template-columns: 44px minmax(0, 1fr); gap: 8px; padding: 8px; }
+  .grafica-grande { grid-template-rows: 180px auto; }
 }
 @media (max-width: 520px) {
   .cabecera { padding-top: 12px; }

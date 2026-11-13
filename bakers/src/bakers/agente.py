@@ -206,13 +206,66 @@ def _temperatura() -> float | None:
         return None
 
 
-def recursos() -> dict:
+CADA_MUESTRA = 5    # s entre muestras de las gráficas
+MUESTRAS = 120      # 10 min, como la ventana del rendimiento del Administrador de tareas pero más larga
+SERIES = ("cpu", "ram", "gpu", "vram", "temp_gpu", "temp")
+_historial: dict[str, deque] = {k: deque(maxlen=MUESTRAS) for k in ("t", *SERIES)}
+_ultima: dict = {}
+_muestras = threading.Lock()
+_muestreador: threading.Thread | None = None
+
+
+def _muestra() -> None:
+    """Una muestra de todo lo que se grafica. El CPU sale del intervalo desde la anterior."""
     total, libre = _ram()
+    gpu = _gpu()
+    valores = {"cpu": _cpu(), "ram": round(100 * (total - libre) / total, 1), "gpu": gpu and gpu["uso"],
+               "vram": gpu and round(100 * gpu["vram_usada_gb"] / gpu["vram_total_gb"], 1),
+               "temp_gpu": gpu and gpu["temperatura"], "temp": None if WINDOWS else _temperatura()}
+    with _muestras:
+        _historial["t"].append(round(time.time()))
+        for k in SERIES:
+            _historial[k].append(valores[k])
+        _ultima.update(valores, ram_total=total, ram_libre=libre, tarjeta=gpu)  # `gpu` ya es la serie de uso
+
+
+def _muestrear_siempre() -> None:
+    while True:
+        time.sleep(CADA_MUESTRA)
+        try:
+            _muestra()
+        except Exception as e:  # noqa: BLE001 - una muestra fallida no debe parar las gráficas
+            print(f"[agente] muestra fallida: {e}", flush=True)
+
+
+def muestrear() -> None:
+    """Arranca el muestreo de fondo una vez por proceso (el agente suelto y el panel, al arrancar)."""
+    global _muestreador
+    with _muestras:
+        if _muestreador:
+            return
+        _muestreador = threading.Thread(target=_muestrear_siempre, name="muestras", daemon=True)
+        _muestreador.start()
+
+
+def historial() -> dict:
+    with _muestras:
+        datos = {k: list(v) for k, v in _historial.items()}
+    # Solo las series que esta máquina tiene (sin GPU, sin sensor): el panel dibuja lo que llega
+    return {"cada": CADA_MUESTRA, "t": datos["t"], **{k: datos[k] for k in SERIES if any(x is not None for x in datos[k])}}
+
+
+def recursos() -> dict:
+    if not _ultima:  # la primera consulta antes de la primera vuelta del muestreo
+        _muestra()
+    with _muestras:
+        u = dict(_ultima)
     raiz = Path.home().anchor if WINDOWS else "/"
     disco = shutil.disk_usage(raiz)
-    return {"cpu": _cpu(), "nucleos": os.cpu_count(), "ram_total_gb": round(total, 1), "ram_libre_gb": round(libre, 1),
+    return {"cpu": u["cpu"], "nucleos": os.cpu_count(), "ram_total_gb": round(u["ram_total"], 1),
+            "ram_libre_gb": round(u["ram_libre"], 1),
             "disco": {"montaje": raiz, "total_gb": round(disco.total / 1e9), "libre_gb": round(disco.free / 1e9)},
-            "gpu": _gpu(), "temperatura": None if WINDOWS else _temperatura(), "encendida_desde": _encendida_desde()}
+            "gpu": u["tarjeta"], "temperatura": u["temp"], "encendida_desde": _encendida_desde()}
 
 
 # --- Servicios ------------------------------------------------------------------------------------------------
@@ -332,7 +385,8 @@ def orden(cfg: Config, nombre: str) -> dict:
 
 def maquina(cfg: Config) -> dict:
     return {"nombre": cfg.nombre, "sistema": "windows" if WINDOWS else "linux", "recursos": recursos(),
-            "servicios": servicios(cfg), "ordenes": sorted(cfg.ordenes), "hora": datetime.now().astimezone().isoformat(timespec="seconds")}
+            "historial": historial(), "servicios": servicios(cfg), "ordenes": sorted(cfg.ordenes),
+            "hora": datetime.now().astimezone().isoformat(timespec="seconds")}
 
 
 def atender(cfg: Config, metodo: str, ruta: str, consulta: dict, cuerpo: dict | None = None) -> tuple[int, dict]:
@@ -426,6 +480,7 @@ def main(argv: list[str] | None = None) -> None:
     if not cfg.usuarios:
         raise SystemExit("Define `usuarios` en la configuración: sin lista, el agente no arranca")
     _Agente.cfg = cfg
+    muestrear()
     servidor = ThreadingHTTPServer(("127.0.0.1", a.puerto), _Agente)
     print(f"Agente de {cfg.nombre} en http://127.0.0.1:{a.puerto} ({len(cfg.servicios)} servicios, {len(cfg.acciones)} con acciones)",
           flush=True)

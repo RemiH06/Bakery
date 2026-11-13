@@ -313,6 +313,7 @@ def configurar(logs: str | None = None, bandeja: str | None = None, inspo: str |
     _Panel.web = _estaticos()
     _Panel.maquina = agente.cargar()
     _Panel.csp = _csp(_Panel.maquina.agentes)
+    agente.muestrear()  # las gráficas de la hoja "Máquinas" ya traen historia al abrirla
 
 
 def servir(puerto: int = PUERTO, logs: str | None = None, bandeja: str | None = None, inspo: str | None = None,
