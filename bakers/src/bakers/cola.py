@@ -41,7 +41,9 @@ _BLOQUEO = ("http error 400", "http error 401", "http error 403", "http error 42
             # Instagram contesta una página vacía o de login en vez de JSON (2026-10-28: 283 seguidos)
             "failed to parse json", "expecting value",
             # gallery-dl: "HttpError: '429 Too Many Requests'", "AuthorizationError"
-            "too many requests", "unauthorized", "forbidden", "authorizationerror")
+            "too many requests", "unauthorized", "forbidden", "authorizationerror",
+            # gallery-dl con la sesión cerrada (2026-11-11)
+            "redirect to home page")
 _RED = ("getaddrinfo", "timed out", "errno 11001", "connection reset", "connection refused",
         "connection aborted", "network is unreachable", "no route to host")
 # Fallas de la infraestructura, no del reel: desatendido, contarlas vaciaría la cola a fallidos en dos pasadas
