@@ -19,7 +19,7 @@ from importlib.resources import files
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
-from . import cola, core, notas, reel
+from . import agente, cola, core, notas, reel
 from .core import BakerError
 
 PUERTO = 8093  # registrado en 48.SkillShot/PORTS.md
@@ -29,8 +29,14 @@ LOGS = ("cola", "analizar", "panel")  # los de job.ps1 que tocan la cola; ahí t
 WEB = files("bakers").joinpath("web")
 TIPOS = {".html": "text/html", ".css": "text/css", ".js": "text/javascript", ".woff2": "font/woff2",
          ".svg": "image/svg+xml", ".txt": "text/plain"}
-CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; "
-       "base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
+def _csp(agentes: dict[str, str]) -> str:
+    """Solo deja conectar al panel mismo y a los agentes de las otras máquinas (el navegador les habla directo)."""
+    conectar = " ".join(["'self'", *sorted(set(agentes.values()))])
+    return ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; "
+            f"connect-src {conectar}; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
+
+
+CSP = _csp({})
 
 
 def _estaticos() -> dict[str, object]:
@@ -145,6 +151,8 @@ class _Panel(BaseHTTPRequestHandler):
     carpetas: dict[str, notas.Carpeta] = {}  # "inspo" y "bandeja", las que se hayan dado al arrancar
     web: dict[str, object] = {}
     doll: str | None = None  # Python del entorno de Doll
+    maquina: agente.Config = agente.Config("")  # esta máquina; sus `agentes` son las demás
+    csp: str = CSP
 
     def _permitido(self) -> bool:
         quien = self.headers.get("Tailscale-User-Login")
@@ -164,7 +172,7 @@ class _Panel(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", cache)
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")  # un enlace a Instagram no se lleva la URL del panel
-        self.send_header("Content-Security-Policy", CSP)
+        self.send_header("Content-Security-Policy", self.csp)
         self.end_headers()
         self.wfile.write(datos_)
 
@@ -210,6 +218,10 @@ class _Panel(BaseHTTPRequestHandler):
                 if n:
                     n["estado"] = _estados_cola().get(n["nombre"])
                 self._responder(200 if n else 404, n or {"error": "no existe esa nota"})
+        elif url.path == "/api/maquinas":  # la propia por el panel; las demás, por su agente
+            self._responder(200, {"local": self.maquina.nombre, "agentes": self.maquina.agentes})
+        elif url.path in agente.RUTAS:
+            self._responder(*agente.atender(self.maquina, "GET", url.path, q))
         elif url.path in ("/api/doll", "/api/doll/floppies"):
             if not self.doll:
                 return self._responder(404, {"error": "el panel arrancó sin Doll (`--doll`)"})
@@ -256,6 +268,10 @@ class _Panel(BaseHTTPRequestHandler):
                 if tipo not in (None, "enlace", "bloqueo", "analisis"):
                     return self._responder(400, {"error": f"tipo desconocido: {tipo}"})
                 res = cola.reintentar(tipo)
+            elif self.path in agente.RUTAS:
+                if not isinstance(cuerpo, dict):
+                    return self._responder(400, {"error": "JSON inválido (un objeto)"})
+                return self._responder(*agente.atender(self.maquina, "POST", self.path, {}, cuerpo))
             elif self.path == "/api/doll/preguntar":  # POST: gasta GPU, un sitio ajeno no debe poder dispararlo
                 if not self.doll:
                     return self._responder(404, {"error": "el panel arrancó sin Doll (`--doll`)"})
@@ -295,6 +311,8 @@ def configurar(logs: str | None = None, bandeja: str | None = None, inspo: str |
     _Panel.bandeja = Path(bandeja).expanduser() if bandeja else None
     _Panel.carpetas = {f: notas.Carpeta(Path(r).expanduser(), f) for f, r in (("inspo", inspo), ("bandeja", bandeja)) if r}
     _Panel.web = _estaticos()
+    _Panel.maquina = agente.cargar()
+    _Panel.csp = _csp(_Panel.maquina.agentes)
 
 
 def servir(puerto: int = PUERTO, logs: str | None = None, bandeja: str | None = None, inspo: str | None = None,

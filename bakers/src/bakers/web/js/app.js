@@ -2,6 +2,7 @@
 import { api, el, hora } from "./util.js";
 import * as inspo from "./inspo.js";
 import * as cola from "./cola.js";
+import * as maquinas from "./maquinas.js";
 import { aplicar, crearDialogo } from "./colores.js";
 
 aplicar();  // los colores de los grupos que se eligieron en este navegador
@@ -11,6 +12,7 @@ const HORNO = { alta: "caliente", media: "tibio", ninguna: "apagado" };
 const hojas = {
   inspo: { titulo: "Inspo", raiz: document.getElementById("v-inspo") },
   cola: { titulo: "Cola", raiz: document.getElementById("v-cola") },
+  maquinas: { titulo: "Máquinas", raiz: document.getElementById("v-maquinas") },
 };
 let ultimoEstado = null;
 
@@ -55,6 +57,7 @@ async function refrescar() {
 
 hojas.inspo.vista = inspo.crear(hojas.inspo.raiz, navegar);
 hojas.cola.vista = cola.crear(hojas.cola.raiz, refrescar);
+hojas.maquinas.vista = maquinas.crear(hojas.maquinas.raiz);
 for (const id of Object.keys(hojas)) {
   document.getElementById(`ir-${id}`).addEventListener("click", (ev) => {
     if (ev.metaKey || ev.ctrlKey) return;

@@ -27,6 +27,9 @@ def url(monkeypatch, tmp_path):
     logs.mkdir()
     (logs / "cola.log").write_text("[cola] bajado AAA (1 hoy)\n", "utf-8")
     monkeypatch.setattr(panel._Panel, "usuarios", set())
+    agentes = tmp_path / "agente.toml"  # la configuración real de la máquina no entra a las pruebas
+    agentes.write_text('nombre = "horno"\n[agentes]\nfresa = "https://fresa.ejemplo.ts.net:8094"\n', "utf-8")
+    monkeypatch.setenv("BAKERY_AGENTE_CONFIG", str(agentes))
     panel.configurar(str(logs))
     s = ThreadingHTTPServer(("127.0.0.1", 0), panel._Panel)
     threading.Thread(target=s.serve_forever, daemon=True).start()
@@ -212,6 +215,17 @@ def test_doll_otro_floppy(con_notas, monkeypatch, tmp_path):
         assert httpx.get(f"{con_notas}/api/doll", headers=YO, params={"q": "x", "floppy": raro}).status_code == 400, raro
         assert httpx.post(f"{con_notas}/api/doll/preguntar", headers=YO, json={"q": "x", "floppy": raro}).status_code == 400, raro
     assert httpx.get(f"{con_notas}/api/doll/floppies").status_code == 403  # fuera del tailnet
+
+
+def test_maquinas(url):
+    r = httpx.get(f"{url}/api/maquinas", headers=YO)
+    assert r.json() == {"local": "horno", "agentes": {"fresa": "https://fresa.ejemplo.ts.net:8094"}}
+    # El navegador habla directo con los agentes: la CSP solo deja conectar a esos
+    assert "connect-src 'self' https://fresa.ejemplo.ts.net:8094;" in r.headers["Content-Security-Policy"]
+    # Las acciones de la máquina local pasan por el agente: sin `acciones`, nada se controla
+    assert httpx.post(f"{url}/api/accion", headers=YO, json=[1]).status_code == 400
+    assert httpx.post(f"{url}/api/orden", headers=YO, json={"orden": "x"}).status_code == 404
+    assert httpx.get(f"{url}/api/maquinas").status_code == 403
 
 
 def test_acciones_solo_con_json(url):
