@@ -34,6 +34,7 @@ export function crear(raiz, navegar) {
     placeholder: "una palabra, una frase, @cuenta, un enlace…", "aria-describedby": "q-ayuda" });
   const fuentes = el("div", { class: "segmento", role: "group", "aria-label": "Fuente" });
   const clase = el("select", { id: "clase" });
+  const floppy = el("select", { id: "floppy" });  // se llena al entrar al modo Doll
   const meses = el("select", { id: "mes" });
   const pestanas = el("div", { class: "pestanas", role: "tablist", "aria-label": "Grupos" });
   const cuantas = el("p", { class: "cuantas", role: "status" });
@@ -55,6 +56,7 @@ export function crear(raiz, navegar) {
         el("div", { class: "q-fila" }, buscar, preguntar),
         ayuda),
       el("div", { class: "campo" }, el("span", { class: "etiqueta", id: "modo-t" }, "Búsqueda"), modos),
+      el("div", { class: "campo solo-doll" }, el("label", { for: "floppy" }, "Floppy"), floppy),
       el("div", { class: "campo solo-literal" }, el("span", { class: "etiqueta", id: "fuente-t" }, "Cuaderno"), fuentes),
       el("div", { class: "campo solo-literal" }, el("label", { for: "clase" }, "Clase"), clase),
       el("div", { class: "campo solo-literal" }, el("label", { for: "mes" }, "Visto en"), meses)),
@@ -82,6 +84,20 @@ export function crear(raiz, navegar) {
 
   let preguntaDe = null;  // la respuesta se queda visible mientras la lista sea de la misma consulta
 
+  // Floppies de Doll en la máquina del panel. Se elige por consulta (`fl` en la URL): no monta nada allá.
+  let floppies = null, montado = null;
+  const elegido = () => estado.fl || montado || "";
+  async function cargarFloppies() {
+    if (!floppies) {
+      try { ({ floppies, montado } = await api("/api/doll/floppies")); }
+      catch (e) { floppy.replaceChildren(el("option", {}, "sin lista")); floppy.disabled = true; floppy.title = e.message; return; }
+    }
+    const lista = elegido() && !floppies.includes(elegido()) ? [...floppies, elegido()] : floppies;
+    floppy.replaceChildren(...lista.map(f => el("option", { value: f, selected: f === elegido() }, f === montado ? `${f} (montado)` : f)));
+    floppy.disabled = lista.length < 2;
+  }
+  floppy.addEventListener("change", () => cambiar({ fl: floppy.value === montado ? null : floppy.value, n: null }));
+
   function porQueNo(r) {
     if (r.faltan?.length)
       return `Doll no llamó al modelo: la pregunta nombra ${r.faltan.map(n => `«${n}»`).join(", ")}, y eso no sale en lo que encontró. ` +
@@ -102,18 +118,20 @@ export function crear(raiz, navegar) {
     respuesta.replaceChildren(el("p", { class: "tenue" }, "Doll está pensando… Puede tardar un minuto si el horno está tibio."));
     preguntar.disabled = true;
     try {
-      const r = await api("/api/doll/preguntar", { q });
-      const nota = (ruta) => {
-        const nombre = ruta.split("/").pop();
-        return el("a", { href: `#inspo?${new URLSearchParams({ modo: "doll", q, n: nombre })}`,
+      const r = await api("/api/doll/preguntar", limpio({ q, floppy: estado.fl }));
+      // Lo que no está en la inspo (otra nota de la bóveda, un PDF) no se abre en el visor: se cita su ruta
+      const nota = (c) => {
+        const nombre = c.ruta.split("/").pop();
+        if (!c.abrible) return el("span", { class: "tenue" }, c.ruta);
+        return el("a", { href: `#inspo?${new URLSearchParams(limpio({ modo: "doll", fl: estado.fl, q, n: nombre }))}`,
           onclick: (ev) => { ev.preventDefault(); cambiar({ q, n: nombre }, true); } }, nombre.replace(/\.md$/, ""));
       };
       poner(respuesta,
         el("h3", {}, "Respuesta de Doll"),
         r.fallo ? el("p", { class: "error" }, `Sin respuesta del modelo: ${r.fallo}. Abajo, lo que encontró.`)
-          : r.no_encontrado ? [el("p", {}, "No encontrado en la inspo. Es una respuesta real: Doll no inventa."), el("p", { class: "ayuda" }, porQueNo(r))]
+          : r.no_encontrado ? [el("p", {}, `No encontrado en «${r.floppy}». Es una respuesta real: Doll no inventa.`), el("p", { class: "ayuda" }, porQueNo(r))]
           : el("p", { class: "dicho" }, r.respuesta),
-        r.citas.length ? el("ol", { class: "citas" }, r.citas.map(c => el("li", {}, el("q", {}, c.texto), " ", nota(c.ruta)))) : null,
+        r.citas.length ? el("ol", { class: "citas" }, r.citas.map(c => el("li", {}, el("q", {}, c.texto), " ", nota(c)))) : null,
         r.citas.length ? el("p", { class: "ayuda" }, "Cada cita se comprobó contra el texto de la nota." +
           (r.citas_descartadas ? ` Se descartaron ${r.citas_descartadas} que no aparecían.` : "")) : null);
     } catch (e) {
@@ -154,7 +172,9 @@ export function crear(raiz, navegar) {
 
   function ficha(n) {
     const activa = n.nombre === estado.n;
-    const meta = [fecha(n.fecha), n.cuenta, n.clase, n.estado && n.estado !== "analizado" ? n.estado : null].filter(Boolean);
+    // Fuera de la inspo no hay fecha ni cuenta: la carpeta dice de dónde salió
+    const carpeta = n.abrible === false && n.ruta?.includes("/") ? n.ruta.slice(0, n.ruta.lastIndexOf("/")) : null;
+    const meta = [carpeta, fecha(n.fecha), n.cuenta, n.clase, n.estado && n.estado !== "analizado" ? n.estado : null].filter(Boolean);
     const contenido = [
       el("span", { class: "pays" }, n.grupos.map(g => pay(grupo(g)))),
       el("span", { class: "titulo" }, n.titulo),
@@ -182,7 +202,7 @@ export function crear(raiz, navegar) {
     if (estado.q) resaltarTodo(fichas);
     const sufijo = estado.q ? ` con «${estado.q}»` : "";
     cuantas.textContent = doll && !estado.q ? "Escribe qué buscas. Doll ordena por sentido: encuentra la idea aunque la nota use otras palabras."
-      : d.notas.length ? (doll ? `${d.notas.length} notas para «${estado.q}», de la más cercana a la menos${d.aviso ? " (por palabras: el modelo de sentido no respondió)" : ""}` : `${d.notas.length} de ${d.total} notas${sufijo}`)
+      : d.notas.length ? (doll ? `${d.notas.length} notas de «${d.floppy}» para «${estado.q}», ${d.como === "sentido" ? "de la más cercana a la menos" : "por palabras, de la más relevante a la menos"}` : `${d.notas.length} de ${d.total} notas${sufijo}`)
       : !doll && !d.total ? "Este cuaderno todavía no tiene notas."
       : `Nada en el horno${sufijo}. Prueba con menos palabras${doll ? " u otras" : ", otra pestaña o sin filtros"}.`;
     mas.hidden = d.notas.length <= mostradas;
@@ -196,7 +216,7 @@ export function crear(raiz, navegar) {
     if (estado.q !== preguntaDe || estado.modo !== "doll") { respuesta.hidden = true; preguntaDe = null; }
     try {
       if (estado.modo === "doll") {
-        resultados = estado.q ? await api(`/api/doll?${new URLSearchParams({ q: estado.q })}`, null, pedido.signal) : { notas: [] };
+        resultados = estado.q ? await api(`/api/doll?${new URLSearchParams(limpio({ q: estado.q, floppy: estado.fl }))}`, null, pedido.signal) : { notas: [] };
         mostradas = POR_PAGINA;
         pintarFichas();
         return;
@@ -285,11 +305,12 @@ export function crear(raiz, navegar) {
       const doll = estado.modo === "doll";
       raiz.classList.toggle("modo-doll", doll);
       for (const b of modos.children) b.setAttribute("aria-pressed", String((b.dataset.modo || null) === (estado.modo || null)));
+      if (doll) await cargarFloppies();
       ayuda.textContent = doll
-        ? "Doll busca por palabras, sin importar el orden ni los acentos, y ordena por relevancia. Enter busca; «Preguntar» responde con citas comprobadas."
+        ? "Doll busca por sentido en un floppy de pura inspo y por palabras en uno con notas tuyas. Enter busca; «Preguntar» responde con citas comprobadas."
         : "Texto literal en cualquier parte de la nota, sin importar mayúsculas ni acentos.";
       buscar.placeholder = doll ? "costos de entrenar modelos, fondos animados con shaders…" : "una palabra, una frase, @cuenta, un enlace…";
-      const clave = (e) => [e.modo, e.f, e.q, e.g, e.c, e.m].join("\u0000");
+      const clave = (e) => [e.modo, e.fl, e.f, e.q, e.g, e.c, e.m].join("\u0000");
       if (!resultados || clave(antes) !== clave(estado)) await cargarLista();
       else if (antes.n !== estado.n) pintarFichas();
       await cargarNota();

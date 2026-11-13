@@ -152,16 +152,23 @@ def test_nota_solo_por_nombre_del_indice(con_notas, tmp_path):
 
 
 FALSO_DOLL = r'''import json, sys
-modo, consulta, k = sys.argv[1:]
+if sys.argv[1] == "floppies":
+    print(json.dumps({"floppies": ["boveda", "inspo"], "montado": "inspo"}))
+    sys.exit()
+modo, floppy, consulta, k = sys.argv[1:]
+floppy = floppy or "inspo"
 f = lambda ruta, enc: {"ruta": ruta, "encabezado": enc, "linea_ini": 3, "linea_fin": 5, "texto": consulta, "terceros": True}
 frs = [f("2026-10-30-poeta-anhelo.md", "Cita"), f("2026-10-30-poeta-anhelo.md", "Otra"), f("0. Clases de inspiración.md", "Clases")]
+if floppy == "boveda":  # dos notas con el mismo nombre en carpetas distintas
+    frs = [f("proyectos/a/Ficha.md", "A"), f("proyectos/b/Ficha.md", "B")]
 if consulta == "truena":
     sys.exit("se cayó el índice")
-print(json.dumps({"fragmentos": frs, "aviso": None} if modo == "sentido" else
-                 {"respuesta": "", "no_encontrado": True, "fallo": None, "citas_descartadas": 0, "intentos": 0,
+citas = [{"texto": "arde", "ruta": frs[0]["ruta"], "linea_ini": 3, "linea_fin": 3}]
+print(json.dumps({"floppy": floppy, "como": "sentido" if floppy == "inspo" else "palabras", "fragmentos": frs} if modo == "buscar" else
+                 {"floppy": floppy, "respuesta": "", "no_encontrado": True, "fallo": None, "citas_descartadas": 0, "intentos": 0,
                   "faltan": ["Zacarías"], "citas": [], "fragmentos": []} if "Zacarías" in consulta else
-                 {"respuesta": "Arde.", "no_encontrado": False, "fallo": None, "citas_descartadas": 0, "faltan": [],
-                  "citas": [{"texto": "arde", "ruta": frs[0]["ruta"], "linea_ini": 3, "linea_fin": 3}], "fragmentos": []}))
+                 {"floppy": floppy, "respuesta": "Arde.", "no_encontrado": False, "fallo": None, "citas_descartadas": 0,
+                  "faltan": [], "citas": citas, "fragmentos": []}))
 '''
 
 
@@ -175,16 +182,36 @@ def test_doll_por_el_puente(con_notas, monkeypatch, tmp_path):
     a, b = r["notas"]  # agrupados por nota, en el orden de Doll
     assert (a["titulo"], a["abrible"], [x["encabezado"] for x in a["fragmentos"]]) == ("Sobre el anhelo", True, ["Cita", "Otra"])
     assert a["fragmentos"][0]["texto"] == "página que arde" and a["grupos"] == ["AyP", "100"]
-    assert (b["nombre"], b["abrible"]) == ("0. Clases de inspiración.md", False) and r["aviso"] is None
+    assert (b["nombre"], b["abrible"]) == ("0. Clases de inspiración.md", False) and (r["floppy"], r["como"]) == ("inspo", "sentido")
     assert httpx.get(f"{con_notas}/api/doll", headers=YO, params={"q": "truena"}).json()["error"].endswith("se cayó el índice")
     assert httpx.get(f"{con_notas}/api/doll", headers=YO, params={"q": " "}).status_code == 400
     p = httpx.post(f"{con_notas}/api/doll/preguntar", headers=YO, json={"q": "¿qué arde?"}, timeout=30).json()
     assert (p["respuesta"], p["citas"][0]["texto"], p["notas"], p["faltan"]) == ("Arde.", "arde", [], [])
+    assert p["citas"][0]["abrible"] is True  # está en la inspo: el visor la abre
     # Doll cortó antes del modelo: el porqué viene de Doll y el panel lo pasa tal cual
     p = httpx.post(f"{con_notas}/api/doll/preguntar", headers=YO, json={"q": "¿Qué dijo Zacarías?"}, timeout=30).json()
     assert (p["no_encontrado"], p["faltan"]) == (True, ["Zacarías"])
     # Preguntar gasta GPU: solo por POST con JSON
     assert httpx.get(f"{con_notas}/api/doll/preguntar", headers=YO, params={"q": "x"}).status_code == 404
+
+
+def test_doll_otro_floppy(con_notas, monkeypatch, tmp_path):
+    puente = tmp_path / "puente.py"
+    puente.write_text(FALSO_DOLL, "utf-8")
+    monkeypatch.setattr(panel, "PUENTE", puente)
+    monkeypatch.setattr(panel._Panel, "doll", sys.executable)
+    assert httpx.get(f"{con_notas}/api/doll/floppies", headers=YO).json() == {"floppies": ["boveda", "inspo"], "montado": "inspo"}
+    r = httpx.get(f"{con_notas}/api/doll", headers=YO, params={"q": "x", "floppy": "boveda"}).json()
+    # Mismo nombre en dos carpetas: dos notas, con su ruta, y ninguna se abre en el visor de la inspo
+    assert [(n["ruta"], n["abrible"]) for n in r["notas"]] == [("proyectos/a/Ficha.md", False), ("proyectos/b/Ficha.md", False)]
+    assert (r["floppy"], r["como"]) == ("boveda", "palabras")
+    p = httpx.post(f"{con_notas}/api/doll/preguntar", headers=YO, json={"q": "¿qué?", "floppy": "boveda"}, timeout=30).json()
+    assert (p["floppy"], p["citas"][0]["abrible"]) == ("boveda", False)
+    # El nombre va como argumento al puente: nada que empiece con guion ni salga de la carpeta de floppies
+    for raro in ("-x", "../inspo", "a b"):
+        assert httpx.get(f"{con_notas}/api/doll", headers=YO, params={"q": "x", "floppy": raro}).status_code == 400, raro
+        assert httpx.post(f"{con_notas}/api/doll/preguntar", headers=YO, json={"q": "x", "floppy": raro}).status_code == 400, raro
+    assert httpx.get(f"{con_notas}/api/doll/floppies").status_code == 403  # fuera del tailnet
 
 
 def test_acciones_solo_con_json(url):

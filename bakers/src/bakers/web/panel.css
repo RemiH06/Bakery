@@ -129,7 +129,7 @@ label, .etiqueta { display: block; font-size: 13px; color: var(--tenue); margin-
 .lista > .boton { margin-top: 12px; width: 100%; }
 .q-fila { display: flex; gap: 8px; }
 .q-fila input { flex: 1; min-width: 0; }
-.inspo:not(.modo-doll) .preguntar, .modo-doll .solo-literal, .modo-doll .pestanas { display: none; }
+.inspo:not(.modo-doll) .preguntar, .inspo:not(.modo-doll) .solo-doll, .modo-doll .solo-literal, .modo-doll .pestanas { display: none; }
 .ficha .no-abrible { display: grid; grid-template-columns: minmax(0, 1fr); gap: 3px; padding: 11px 14px 12px 15px; background: var(--bg2);
   border: 1px dashed var(--borde2); border-left: 3px solid var(--fruta); border-radius: var(--radio); position: relative; }
 .ficha .seccion { font-family: var(--serif); font-style: italic; color: var(--acento2); }

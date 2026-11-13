@@ -96,14 +96,17 @@ PUENTE = Path(__file__).with_name("doll_puente.py")
 _PREGUNTA = threading.Lock()  # un `bake` a la vez: en paralelo, el servidor corre los dos y uno se pierde
 
 
-def doll(python: str, modo: str, consulta: str, k: int) -> dict:
-    """Corre el puente con el Python de Doll. `buscar` tarda lo que indexar las notas nuevas; `sentido`, además, lo
-    que tarde embeber sus fragmentos (unos 0.4 s cada uno en CPU); `preguntar`, lo que tarde el Baker `doll` (con la
+FLOPPY = re.compile(r"\w[\w.-]*")  # el mismo nombre válido que en Doll; vacío es el montado
+
+
+def doll(python: str, modo: str, *args: str | int) -> dict:
+    """Corre el puente con el Python de Doll. `buscar` tarda lo que indexar las notas nuevas y, por sentido, lo que
+    tarde embeber sus fragmentos (unos 0.4 s cada uno en CPU); `preguntar`, lo que tarde el Baker `doll` (con la
     marcha `media` o un juego abierto, hasta un par de minutos)."""
     try:
         # -X utf8: con -I no valen las variables PYTHON*, y en Windows stderr saldría en cp1252
-        p = subprocess.run([python, "-I", "-X", "utf8", str(PUENTE), modo, consulta, str(k)], capture_output=True,
-                           text=True, encoding="utf-8", errors="replace", timeout=60 if modo == "buscar" else 300)
+        p = subprocess.run([python, "-I", "-X", "utf8", str(PUENTE), modo, *map(str, args)], capture_output=True,
+                           text=True, encoding="utf-8", errors="replace", timeout=60 if modo == "floppies" else 300)
     except (OSError, subprocess.TimeoutExpired) as err:
         raise BakerError(f"Doll no respondió: {err}") from None
     if p.returncode:
@@ -112,18 +115,21 @@ def doll(python: str, modo: str, consulta: str, k: int) -> dict:
 
 
 def _con_notas(fragmentos: list[dict], carpeta: notas.Carpeta | None) -> list[dict]:
-    """Agrupa los fragmentos por nota, en el orden de Doll (el de la mejor), con los datos de la nota del explorador."""
+    """Agrupa los fragmentos por nota, en el orden de Doll (el de la mejor), con los datos de la nota del explorador.
+    Por ruta y no por nombre: en un floppy como `boveda`, dos carpetas pueden tener notas con el mismo nombre. Solo
+    se abre en el visor lo que está en la inspo; lo demás (otra nota de la bóveda, un PDF) se lee en sus fragmentos."""
     por_nota: dict[str, dict] = {}
     todas = carpeta.notas() if carpeta else {}
     for f in fragmentos:
-        nombre = Path(f["ruta"]).name
-        if nombre not in por_nota:
+        ruta = f["ruta"]
+        if ruta not in por_nota:
+            nombre = Path(ruta).name
             n = todas.get(nombre)
-            por_nota[nombre] = {**(n.meta if n else {"nombre": nombre, "titulo": nombre.removesuffix(".md"), "grupos": ["otros"]}),
-                                "fuente": "inspo", "abrible": bool(n), "fragmentos": []}
+            por_nota[ruta] = {**(n.meta if n else {"nombre": nombre, "titulo": nombre.removesuffix(".md"), "grupos": ["otros"]}),
+                              "ruta": ruta, "fuente": "inspo", "abrible": bool(n), "fragmentos": []}
         # Texto plano, sin el encabezado de la sección (ya va en `encabezado`) ni la sintaxis de tablas y enlaces
         texto = notas.legible(re.sub(r"\A#+ [^\n]*\n", "", f["texto"]))
-        por_nota[nombre]["fragmentos"].append({**{k: f[k] for k in ("encabezado", "linea_ini", "linea_fin")}, "texto": texto})
+        por_nota[ruta]["fragmentos"].append({**{k: f[k] for k in ("encabezado", "linea_ini", "linea_fin")}, "texto": texto})
     return list(por_nota.values())
 
 
@@ -175,6 +181,13 @@ class _Panel(BaseHTTPRequestHandler):
             self._responder(404, {"error": f"sin carpeta de notas para «{fuente}» (`--notas`, `--bandeja`)"})
         return c
 
+    def _floppy(self, nombre: str | None) -> str | None:
+        """El nombre tal cual, "" para el montado, o None tras responder 400."""
+        if nombre and not FLOPPY.fullmatch(nombre):
+            self._responder(400, {"error": f"nombre de floppy inválido: {nombre!r}"})
+            return None
+        return nombre or ""
+
     def do_GET(self) -> None:
         if not self._permitido():
             return
@@ -197,17 +210,24 @@ class _Panel(BaseHTTPRequestHandler):
                 if n:
                     n["estado"] = _estados_cola().get(n["nombre"])
                 self._responder(200 if n else 404, n or {"error": "no existe esa nota"})
-        elif url.path == "/api/doll":
+        elif url.path in ("/api/doll", "/api/doll/floppies"):
             if not self.doll:
                 return self._responder(404, {"error": "el panel arrancó sin Doll (`--doll`)"})
+            if url.path == "/api/doll/floppies":
+                try:
+                    return self._responder(200, doll(self.doll, "floppies"))
+                except BakerError as err:
+                    return self._responder(502, {"error": str(err)})
             if not (consulta := uno("q")):
                 return self._responder(400, {"error": "falta la consulta"})
+            if (floppy := self._floppy(uno("floppy"))) is None:
+                return
             try:
-                res = doll(self.doll, "sentido", consulta[:500], 30)
+                res = doll(self.doll, "buscar", floppy, consulta[:500], 30)
             except BakerError as err:
                 return self._responder(502, {"error": str(err)})
-            self._responder(200, {"notas": _con_notas(res["fragmentos"], self.carpetas.get("inspo")),
-                                  "aviso": res.get("aviso")})
+            self._responder(200, {"floppy": res["floppy"], "como": res["como"],
+                                  "notas": _con_notas(res["fragmentos"], self.carpetas.get("inspo"))})
         else:
             self._responder(404, {"error": "no existe"})
 
@@ -242,13 +262,19 @@ class _Panel(BaseHTTPRequestHandler):
                 consulta = str(cuerpo.get("q") or "").strip()[:500]
                 if not consulta:
                     return self._responder(400, {"error": "falta la pregunta"})
+                if (floppy := self._floppy(str(cuerpo.get("floppy") or "").strip() or None)) is None:
+                    return
                 if not _PREGUNTA.acquire(blocking=False):
                     return self._responder(409, {"error": "ya hay una pregunta en el horno; espera a que salga"})
                 try:
-                    r = doll(self.doll, "preguntar", consulta, 5)
+                    r = doll(self.doll, "preguntar", floppy, consulta, 5)
                 finally:
                     _PREGUNTA.release()
-                res = {**r, "notas": _con_notas(r.pop("fragmentos"), self.carpetas.get("inspo"))}
+                carpeta = self.carpetas.get("inspo")
+                todas = carpeta.notas() if carpeta else {}
+                for c in r["citas"]:  # el visor solo abre notas de la inspo
+                    c["abrible"] = Path(c["ruta"]).name in todas
+                res = {**r, "notas": _con_notas(r.pop("fragmentos"), carpeta)}
             else:
                 return self._responder(404, {"error": "no existe"})
         except (json.JSONDecodeError, UnicodeDecodeError, AttributeError):  # p. ej. un cuerpo en cp1252
