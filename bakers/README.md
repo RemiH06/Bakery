@@ -111,7 +111,7 @@ Los Bakers piden el modelo virtual `principal`; el perfil activo de llama-swap d
 
 | Marcha | `principal` es | VRAM propia (contexto 32k) | Cabe si lo demás usa |
 |---|---|---|---|
-| `alta` | `bonsai` | ~9.5 GB con el escritorio (9.1 propios) | hasta ~2.1 GB |
+| `alta` | `bonsai`, caché KV en q8_0 | ~9.0 GB con el escritorio (8.1 propios) | hasta ~3.1 GB |
 | `media` | `qwen`, expertos en RAM | ~3.8 GB con el escritorio (3.35 propios) | hasta ~7.9 GB |
 | `ninguna` | nada: el Baker responde error y Claude delega en otro lado | 0 | lo que sea |
 

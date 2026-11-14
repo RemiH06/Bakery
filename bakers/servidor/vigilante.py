@@ -32,7 +32,7 @@ LLAVE = Path(os.environ.get("BAKERS_LLAVE", Path.home() / "bakers" / "api-key.tx
 # ~4.6 GB privados más los expertos mapeados del GGUF, que llegan a ~20 GB conforme se usan (si faltan, no truena: se
 # vuelve lento leyendo disco). Medido en Windows con la RTX 3060: en otro hardware, medir de nuevo.
 MARCHAS = [
-    {"perfil": "alta", "modelo": "bonsai", "vram": 9100, "ram": 10000},
+    {"perfil": "alta", "modelo": "bonsai", "vram": 8100, "ram": 10000},  # caché KV en q8_0 (2026-11-14)
     {"perfil": "media", "modelo": "qwen", "vram": 3600, "ram": 20000},
     {"perfil": "ninguna", "modelo": None, "vram": 0, "ram": 0},
 ]

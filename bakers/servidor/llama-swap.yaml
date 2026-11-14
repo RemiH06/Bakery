@@ -46,7 +46,9 @@ macros:
   "comunes": "--host 127.0.0.1 --port ${PORT} -c 32768 -np 1 -fa on --reasoning off --no-webui"
 
 models:
-  # Principal: 7.9 GB de VRAM, 36 tok/s (medido en 1.0a). Pide el fork de PrismML.
+  # Principal: 36 tok/s (medido en 1.0a). Pide el fork de PrismML. Caché KV en q8_0 (2026-11-14): ~8.1 GB de VRAM con
+  # 32k en vez de ~9.1, para que quepa junto al escritorio en uso (2 a 3 GB) sin bajar a Qwen, que tarda el triple.
+  # Mismo resultado en el criterio RF-15 de Tabularium (10 de 12, cero citas malas) y mismos tiempos.
   "bonsai":
     name: "Ternary Bonsai 2 27B PQ2_0"
     cmd: |
