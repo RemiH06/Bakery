@@ -1,6 +1,6 @@
 # Acceso remoto a Pixilate
 
-Scripts por plataforma: [`windows/`](windows/) (Pixilate: `pixilate-setup.ps1`, `job.ps1`) y [`debian/`](debian/) (las Pi: `pi-setup.sh` y `agente-setup.sh`). `aerilate.pub` es común.
+Scripts por plataforma: [`windows/`](windows/) (Pixilate: `pixilate-setup.ps1`, `job.ps1`) y [`debian/`](debian/) (las Pi: `pi-setup.sh`, `agente-setup.sh` y `ntfy-setup.sh`). `aerilate.pub` es común.
 
 Aerilate entra a Pixilate por SSH dentro de Tailscale: sin abrir puertos en el router, funciona con CGNAT, en redes ajenas (escuela, cafeterías) y también en casa (en la misma red Tailscale conecta directo por la LAN, sin dar la vuelta por internet).
 
@@ -66,6 +66,18 @@ sudo remote/debian/agente-setup.sh   # la primera vez deja /etc/bakery-agente.to
 ```
 
 Crea el usuario `bakery-agente` (sin shell ni home, en `systemd-journal` para leer logs), copia el agente a `/opt/bakery-agente` (de root: el usuario de siempre no puede cambiar el código del servicio), genera la regla de polkit que solo le deja iniciar, detener y reiniciar las unidades de `acciones`, instala la unidad `bakery-agente` endurecida (`NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome`, 128 MB) y la publica solo al tailnet en el 8094. Volver a correrlo al actualizar el agente o cambiar `acciones`. Verificar: `sudo -u bakery-agente systemctl --no-ask-password restart ssh` debe dar `Access denied`. Apagar: `sudo tailscale serve --https=8094 off && sudo systemctl disable --now bakery-agente`.
+
+## 5. Avisos con ntfy (frambuesa-yi)
+
+Notificaciones al teléfono para los proyectos que corren en la Pi. Un tema por proyecto:
+
+```bash
+sudo remote/debian/ntfy-setup.sh tabularium   # se puede volver a correr; no cambia contraseñas ni tokens que ya existen
+```
+
+Instala ntfy del repositorio oficial (verifica la huella de la llave antes de confiar en ella), lo deja en `127.0.0.1:8095` con `auth-default-access: deny-all` y lo publica solo al tailnet. Cada tema recibe un usuario de ntfy que solo puede escribir en él y un token en `~/.config/ntfy/TEMA.env` (600) del usuario que corrió sudo. El usuario `remi` solo lee; su contraseña queda en `/etc/ntfy/remi.txt` (de root). En el teléfono: app de ntfy (con Tailscale activo), servidor `https://frambuesa-yi.<tailnet>.ts.net:8095`, usuario `remi`, suscribirse al tema. Verificar: publicar sin token da 403. Límite: si la Pi se apaga, nadie avisa. Apagar: `sudo tailscale serve --https=8095 off && sudo systemctl disable --now ntfy`.
+
+Desde el 2026-11-14 las unidades de `frambuesa-yi` respetan `MemoryMax`: `cgroup_enable=memory` al final de `/boot/firmware/cmdline.txt` (original en `cmdline.txt.antes-cgroup`). Verificar: `cat /sys/fs/cgroup/cgroup.controllers` incluye `memory`.
 
 ## Seguridad
 
