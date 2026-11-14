@@ -100,8 +100,9 @@ added markdown, no ellipsis. Cite at least one passage from each fragment your a
 When one fragment gives the general rule and another a special case (a tax incentive, a regime, a condition such as an amount
 limit), answer with the general rule and then name the special case and its condition. The law (LISR, CFF, LIVA) prevails; the
 RMF only details it.
-Then write respuesta in one to three sentences in Mexican Spanish, naming the article or rule it comes from (for example
-"artículo 27 de la LISR" or "regla 2.7.1.21 de la RMF 2026"). Do not give personal advice."""
+Then write respuesta in one to three sentences in formal Mexican Spanish, for lawyers and accountants: impersonal or "usted",
+never "tú", no colloquialisms, the vocabulary of the law ("disposición", "fundamento", "contribuyente"). Name the article or rule
+it comes from (for example "artículo 27 de la LISR" or "regla 2.7.1.21 de la RMF 2026"). Do not give personal advice."""
 
 # No lee archivos de texto: tiene su propia herramienta (`reel` en el MCP, `baker reel` en la CLI).
 # Atiende `vision` (Qwen con mmproj) y no `principal`: Bonsai no ve imágenes.
