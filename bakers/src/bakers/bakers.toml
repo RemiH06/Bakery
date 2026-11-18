@@ -81,7 +81,7 @@ If the change both widens and narrows, choose the effect that matters more to th
 # en su versión vigente a la fecha de la pregunta; Tabularium verifica cada cita por código y sin citas no responde.
 [tabularium]
 modelo = "principal"
-esquema = "respuesta"
+esquema = "respuesta_legal"
 temperatura = 0.0
 max_salida = 1024
 descripcion = "Responde una pregunta de ley mexicana (federal y de Jalisco) solo con los fragmentos de ley del archivo, con citas textuales."
@@ -94,9 +94,14 @@ answer it from the fragments, set no_encontrado to true.
 Many fragments are irrelevant. A fragment on the same topic that lacks the requested fact is not an answer. Do not use general
 knowledge, and do not guess amounts, rates, dates or deadlines.
 If the fragments do not state the answer, set no_encontrado to true and leave citas and respuesta empty. That includes questions
-about laws that are not in the fragments, and questions that depend on facts of a person's situation the question does not give.
+about laws that are not in the fragments, and questions about a person's own case that cannot be answered without facts of that
+case the question does not give.
 Otherwise, copy into citas the shortest passages that support the answer, character by character: same words, same accents, no
-added markdown, no ellipsis. Cite at least one passage from each fragment your answer relies on.
+added markdown, no ellipsis. At most four citas, each one sentence or one fraction, not a whole article. Cite at least one
+passage from each fragment your answer relies on.
+When the answer depends on a fact the question does not give (an amount, the value of what was stolen, which of several cases
+applies), do not list every case: say what decides it and give the lowest and the highest outcome, or the case that matches the
+question.
 When one fragment gives the general rule and another a special case (a tax incentive, a regime, a condition such as an amount
 limit), answer with the general rule and then name the special case and its condition. A law prevails over its regulation and
 over the RMF, which only detail it.

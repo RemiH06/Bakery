@@ -1,5 +1,5 @@
 """Esquemas de respuesta. De cada uno sale el JSON Schema que llama-server convierte en gramática."""
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, create_model
 
@@ -17,6 +17,17 @@ class RespuestaCitada(BaseModel):
     citas: list[str] = Field(description="Verbatim passages copied from the fragments; empty if no_encontrado")
     no_encontrado: bool = Field(description="True when the fragments do not contain the answer")
     respuesta: str = Field(description="Short answer based only on the citas; empty if no_encontrado")
+
+
+# Tope en la gramática, no en el prompt: Bonsai ignora los límites escritos, pero llama-server no deja
+# pasar de maxItems ni de maxLength. Así un artículo con muchos casos (art. 236 Bis del Código Penal de
+# Jalisco, 2026-11-17) no lleva al bucle hasta el tope de tokens: la salida cabe en ~900 de los 1,024.
+# Una cita cortada en el carácter 350 sigue siendo texto literal del fragmento y Tabularium la verifica;
+# una respuesta cortada, Tabularium la recorta a su última oración completa.
+class RespuestaLegal(RespuestaCitada):
+    citas: list[Annotated[str, Field(max_length=350)]] = Field(
+        max_length=4, description="Verbatim passages copied from the fragments; empty if no_encontrado")
+    respuesta: str = Field(max_length=1000, description="Short answer based only on the citas; empty if no_encontrado")
 
 
 class Glosa(BaseModel):
