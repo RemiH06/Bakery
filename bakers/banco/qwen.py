@@ -18,10 +18,13 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
 import tomllib
 from datetime import datetime
 from pathlib import Path
+
+from bakers import core
 
 IROFACTORY = Path(__file__).resolve().parents[3]  # banco -> bakers -> 29.Bakery -> iroFactory
 CASOS = Path(__file__).with_name("casos_qwen.toml")
@@ -31,6 +34,7 @@ TOPE_QWEN = "30m"          # como el A/B de 1.0o
 # 2: además nombra las skills a cargar y prohíbe `cd`, que la lista blanca niega (36 de 46 negados en la 1).
 ENCARGO = 2
 TOPE_VERIFICAR = 900       # segundos; cada caso corre solo su archivo de pruebas
+VIGIA = 15                 # segundos entre consultas a /running mientras trabaja Qwen
 # Sin `git log` ni `git show`: los commits de referencia están en el repo y serían la respuesta.
 PERMITIDAS = ["read_file", "edit", "write_file", "glob", "grep_search", "list_directory", "skill", "todo_write",
               "run_shell_command(uv run pytest)", "run_shell_command(uv run python -m pytest)",
@@ -62,12 +66,17 @@ def _verificar(caso: dict, cwd: Path) -> tuple[bool, str]:
     return p.returncode == 0, (p.stdout + p.stderr)[-4000:]
 
 
+def _limpiar(caso: dict, wt: Path) -> None:
+    repo = IROFACTORY / caso["repo"]
+    subprocess.run(["git", "-C", str(repo), "worktree", "remove", "--force", str(wt)], capture_output=True)
+    shutil.rmtree(wt, ignore_errors=True)
+    subprocess.run(["git", "-C", str(repo), "worktree", "prune"], capture_output=True)
+
+
 def _preparar(caso: dict, wt: Path) -> tuple[Path, str]:
     """Worktree en el padre del commit con las pruebas del commit puestas. Devuelve el proyecto y el árbol base."""
     repo = IROFACTORY / caso["repo"]
-    if wt.exists():
-        subprocess.run(["git", "-C", str(repo), "worktree", "remove", "--force", str(wt)], capture_output=True)
-        shutil.rmtree(wt, ignore_errors=True)
+    _limpiar(caso, wt)  # uno que quedó de una corrida cortada
     _git(repo, "worktree", "add", "--detach", str(wt), f"{caso['commit']}^")
     _git(wt, "checkout", caso["commit"], "--", *caso["pruebas"])
     proyecto = wt / caso.get("proyecto", ".")
@@ -89,6 +98,27 @@ def _prompt(caso: dict) -> str:
             "Work only inside this folder. Do not commit.")
 
 
+class _Vigia(threading.Thread):
+    """Mira qué modelos tiene cargados llama-swap mientras corre Qwen. Si otro cliente pide un modelo distinto,
+    llama-swap los alterna y Qwen pierde su caché de prompt (2026-11-18: corridas 5 veces más lentas por eso);
+    la corrida queda marcada en vez de contarse como lentitud de Qwen."""
+
+    def __init__(self, modelo: str):
+        super().__init__(daemon=True)
+        self.modelo, self.alto, self.otros, self.fuera, self.fallas = modelo, threading.Event(), set(), 0, 0
+
+    def run(self) -> None:
+        with core._cliente(timeout=10) as c:
+            while not self.alto.wait(VIGIA):
+                try:
+                    cargados = {m["model"] for m in c.get("/running").json()["running"]}
+                except Exception:  # noqa: BLE001  una consulta perdida no invalida la corrida
+                    self.fallas += 1
+                    continue
+                self.otros |= cargados - {self.modelo}
+                self.fuera += self.modelo not in cargados
+
+
 def _qwen(caso: dict, proyecto: Path, modelo: str, carpeta: Path) -> dict:
     cli = Path(subprocess.run(["npm", "root", "-g"], capture_output=True, text=True, shell=os.name == "nt",
                               check=True).stdout.strip()) / "@qwen-code" / "qwen-code" / "cli.js"
@@ -96,7 +126,8 @@ def _qwen(caso: dict, proyecto: Path, modelo: str, carpeta: Path) -> dict:
     argv = ["node", str(cli), "-m", modelo, "-o", "stream-json", "--approval-mode", "default",
             "--allowed-tools", *PERMITIDAS, "--exclude-tools", *EXCLUIDAS, "--max-wall-time", TOPE_QWEN,
             "--chat-recording", "false", _prompt(caso)]
-    inicio = time.monotonic()
+    inicio, vigia = time.monotonic(), _Vigia(modelo)
+    vigia.start()
     with open(carpeta / "eventos.jsonl", "w", encoding="utf-8") as eventos:
         try:
             p = subprocess.run(argv, cwd=proyecto, stdout=eventos, stderr=subprocess.PIPE, text=True,
@@ -104,7 +135,12 @@ def _qwen(caso: dict, proyecto: Path, modelo: str, carpeta: Path) -> dict:
             codigo, error = p.returncode, p.stderr[-2000:]
         except subprocess.TimeoutExpired:
             codigo, error = None, "el proceso pasó de 35 min"
+        finally:
+            vigia.alto.set()
+            vigia.join()
     return {"codigo": codigo, "segundos": round(time.monotonic() - inicio), "stderr": error,
+            "otros_modelos": sorted(vigia.otros), "consultas_sin_modelo": vigia.fuera,
+            "consultas_fallidas": vigia.fallas,
             **_leer_eventos(carpeta / "eventos.jsonl")}
 
 
@@ -133,6 +169,14 @@ def _leer_eventos(ruta: Path) -> dict:
 def correr(caso: dict, modelo: str, referencia: bool, carpeta: Path, conservar: bool) -> dict:
     carpeta.mkdir(parents=True)
     wt = SALIDA / "wt" / caso["id"]
+    try:
+        return _correr(caso, modelo, referencia, carpeta, wt)
+    finally:
+        if not conservar:  # también si git o Qwen fallaron: un worktree colgado tumba al caso siguiente del repo
+            _limpiar(caso, wt)
+
+
+def _correr(caso: dict, modelo: str, referencia: bool, carpeta: Path, wt: Path) -> dict:
     proyecto, base = _preparar(caso, wt)
     pasaba, salida_antes = _verificar(caso, proyecto)
     if referencia:
@@ -161,10 +205,6 @@ def correr(caso: dict, modelo: str, referencia: bool, carpeta: Path, conservar: 
         **qwen,
     }
     (carpeta / "resultado.json").write_text(json.dumps(resultado, ensure_ascii=False, indent=1), "utf-8")
-    if not conservar:
-        subprocess.run(["git", "-C", str(IROFACTORY / caso["repo"]), "worktree", "remove", "--force", str(wt)],
-                       capture_output=True)
-        shutil.rmtree(wt, ignore_errors=True)
     return resultado
 
 
@@ -186,7 +226,8 @@ def main() -> None:
             try:
                 r = correr(todos[cid], a.modelo, a.referencia, corrida / f"{cid}-{vuelta}", a.conservar)
             except subprocess.CalledProcessError as e:  # git o uv: el caso está mal armado, no es culpa de Qwen
-                r = {"caso": cid, "ok": False, "error_arnes": f"{e.cmd[:4]}: {(e.stderr or '')[-500:]}"}
+                r = {"caso": cid, "ok": False,
+                     "error_arnes": f"{e.cmd[:4]} (código {e.returncode}): {(e.stderr or e.stdout or '')[-500:]}"}
             with open(corrida / "resultados.jsonl", "a", encoding="utf-8") as f:
                 f.write(json.dumps({k: v for k, v in r.items() if k != "reporte"}, ensure_ascii=False) + "\n")
             print(f"{cid:28} {'ok' if r['ok'] else 'FALLA':6} {r.get('segundos', '-'):>5} s  "
