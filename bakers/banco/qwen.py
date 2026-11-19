@@ -27,6 +27,9 @@ IROFACTORY = Path(__file__).resolve().parents[3]  # banco -> bakers -> 29.Bakery
 CASOS = Path(__file__).with_name("casos_qwen.toml")
 SALIDA = Path.home() / ".bakers" / "banco-qwen"
 TOPE_QWEN = "30m"          # como el A/B de 1.0o
+# Versión del texto que arma `_prompt`, para comparar tandas. 1: solo la tarea (2026-11-18, primera tanda).
+# 2: además nombra las skills a cargar y prohíbe `cd`, que la lista blanca niega (36 de 46 negados en la 1).
+ENCARGO = 2
 TOPE_VERIFICAR = 900       # segundos; cada caso corre solo su archivo de pruebas
 # Sin `git log` ni `git show`: los commits de referencia están en el repo y serían la respuesta.
 PERMITIDAS = ["read_file", "edit", "write_file", "glob", "grep_search", "list_directory", "skill", "todo_write",
@@ -77,7 +80,10 @@ def _preparar(caso: dict, wt: Path) -> tuple[Path, str]:
 def _prompt(caso: dict) -> str:
     base = caso.get("proyecto", ".")
     pruebas = ", ".join(f"`{Path(p).relative_to(base).as_posix()}`" for p in caso["pruebas"])
+    skills = ["qwen-flujo", "qwen-ponytail", "qwen-python"] + (["qwen-bakery"] if caso["repo"] == "29.Bakery" else [])
     return (f"{caso['tarea'].strip()}\n\n"
+            f"Before anything else, load these skills: {', '.join(skills)}.\n"
+            "Commands already run in this folder: never prefix them with `cd`, `--directory` or `git -C`.\n"
             f"Verification (run it from this folder): `{' '.join(caso['verificar'])}`\n"
             f"The tests in {pruebas} are already written and are the spec: do not edit them.\n"
             "Work only inside this folder. Do not commit.")
@@ -145,7 +151,8 @@ def correr(caso: dict, modelo: str, referencia: bool, carpeta: Path, conservar: 
     tocadas = [p for p in caso["pruebas"] if _git(wt, "diff", "--cached", base, "--", p).strip()]
     agregados = [l[1:] for l in diff.splitlines() if l.startswith("+") and not l.startswith("+++")]
     resultado = {
-        "caso": caso["id"], "modelo": "referencia" if referencia else modelo, "ok": ok and not tocadas,
+        "caso": caso["id"], "modelo": "referencia" if referencia else modelo, "encargo": ENCARGO,
+        "ok": ok and not tocadas,
         "verde": ok, "rojo_antes": not pasaba, "tocó_pruebas": tocadas,
         "archivos": _git(wt, "diff", "--cached", "--name-only", base).split(),
         "renglones": sum(1 for l in diff.splitlines() if l[:1] in "+-" and l[:3] not in ("+++", "---")),

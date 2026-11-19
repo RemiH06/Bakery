@@ -142,7 +142,53 @@ Acceptance criteria:
 Files to touch: `src/bakers/schemas.py`, `src/bakers/core.py`, `src/bakers/bakers.toml`.
 """
 
+[[caso]]
+id = "bakers-reel-destino"
+repo = "29.Bakery"
+commit = "9a49903"
+proyecto = "bakers"
+pruebas = ["bakers/tests/test_reel.py"]
+verificar = ["uv", "run", "pytest", "tests/test_reel.py", "-x", "-q"]
+tarea = """
+Goal: the `reel` tool writes each note draft only next to the heavy material (`<CARPETA>/<id>/nota.md`). The
+project that asked for the note needs it in its own notes folder, so add an optional `destino` folder.
+
+Acceptance criteria:
+- `reel(fuentes, destino: str | None = None)` in `src/bakers/reel.py`. With `destino`: expand `~`; if its parent
+  folder does not exist raise `BakerError` with a message that contains "revisa el destino" (before calling any
+  model or checking the gear); create the `destino` folder itself if it is missing. Pass it down to `_uno`.
+- The draft is still written to `<trabajo>/nota.md`. With `destino`, the same text is also written to
+  `<destino>/<YYYY-MM-DD>-<cuenta>-<tema>.md` (today's date), and the returned dict's `nota` is that path.
+  `cuenta` is the video's channel or uploader, or "local" when there is none. `cuenta` and `tema` go through a slug:
+  lowercase ASCII without accents, every run of other characters turned into "-", trimmed, at most 50 characters
+  cut between words.
+- `baker reel` in `src/bakers/cli.py` gets `-d/--destino`; the MCP tool `reel` in `src/bakers/mcp_server.py` gets
+  `destino: str | None = None` and one sentence about it in its description. Both pass it through.
+Files to touch: `src/bakers/reel.py`, `src/bakers/cli.py`, `src/bakers/mcp_server.py`.
+"""
+
 # ---- 30.Doll ----
+
+[[caso]]
+id = "doll-acomodar-enlaces"
+repo = "30.Doll"
+commit = "3b6a6c9"
+pruebas = ["tests/test_acomodar.py"]
+verificar = ["uv", "run", "pytest", "tests/test_acomodar.py", "-x", "-q"]
+tarea = """
+Goal: simplify how `acomodar()` in `src/doll/acomodar.py` proposes links. Today they come from the `destino` of
+the note's class in the class table, and when `destino` names a folder (written as `` `Talleres/` ``) it searches
+the index for the best note in that folder, which needs an index connection. From now on the links are only the
+wiki links (`[[...]]`) written in `destino`.
+
+Acceptance criteria:
+- `acomodar(corpus, rutas)` no longer takes a connection. Each `Propuesta` gets the wiki-link targets of its class's
+  `destino`, sorted and without repeats.
+- Remove the folder search and everything that becomes unused with it (helper, regex, imports).
+- Update every caller in `src/doll/cli.py`; none of them opens the index only for this anymore.
+- Fix the sentence about links in the module docstring.
+Files to touch: `src/doll/acomodar.py`, `src/doll/cli.py`.
+"""
 
 [[caso]]
 id = "doll-nombres-faltantes"
