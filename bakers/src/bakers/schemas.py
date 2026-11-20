@@ -30,6 +30,15 @@ class RespuestaLegal(RespuestaCitada):
     respuesta: str = Field(max_length=1000, description="Short answer based only on the citas; empty if no_encontrado")
 
 
+class Reformulacion(BaseModel):
+    """Una pregunta de ley contada como la contaría cualquiera, vuelta consultas con el vocabulario de la ley,
+    para que Tabularium (61.Tabularium, 10.5 y 10.8) busque con ellas. `pregunta` va primero: con turnos
+    anteriores, el modelo resuelve a qué se refiere un seguimiento antes de escribir las consultas."""
+    pregunta: str = Field(max_length=500, description="The current question as a standalone question in Spanish")
+    consultas: list[Annotated[str, Field(max_length=120)]] = Field(
+        min_length=1, max_length=3, description="Short search queries in the formal vocabulary of Mexican statutes")
+
+
 class Glosa(BaseModel):
     """Efecto de una reforma en una unidad de una norma, para las Novellae de Tabularium (61.Tabularium).
     `resumen` va primero: el modelo describe el cambio antes de decidir qué efecto tiene."""
