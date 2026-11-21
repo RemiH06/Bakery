@@ -190,9 +190,9 @@ def test_esquema_de_doll_trae_citas():
 
 
 def test_glosador_describe_antes_de_etiquetar():
-    """Tabularium lee `efecto` y `resumen`; el orden importa porque la gramática lo sigue."""
+    """Tabularium lee `efecto`, `resumen` y `titular`; el orden importa porque la gramática lo sigue."""
     esquema = core.UNA_LLAMADA[core.BAKERS["glosador"]["esquema"]]
-    assert list(esquema.model_fields) == ["resumen", "efecto"]
+    assert list(esquema.model_fields) == ["resumen", "titular", "efecto"]
     assert esquema.model_json_schema()["properties"]["efecto"]["enum"] == ["amplia", "restringe", "aclara"]
 
 

@@ -43,6 +43,8 @@ class Glosa(BaseModel):
     """Efecto de una reforma en una unidad de una norma, para las Novellae de Tabularium (61.Tabularium).
     `resumen` va primero: el modelo describe el cambio antes de decidir qué efecto tiene."""
     resumen: str = Field(description="What the change does, one or two sentences, in Spanish (Mexico)")
+    # Para la lista de cambios recientes de Tabularium (10.4): la primera oración del resumen salía de hasta tres renglones.
+    titular: str = Field(max_length=100, description="The change in one short line of at most twelve words, in Spanish (Mexico)")
     efecto: Literal["amplia", "restringe", "aclara"] = Field(
         description="For the taxpayer: amplia grants or widens a right, option or benefit or lightens a burden; "
                     "restringe adds or tightens an obligation, requirement, sanction or limit, or removes a benefit; "
