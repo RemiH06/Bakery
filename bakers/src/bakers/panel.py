@@ -319,6 +319,7 @@ def configurar(logs: str | None = None, bandeja: str | None = None, inspo: str |
 def servir(puerto: int = PUERTO, logs: str | None = None, bandeja: str | None = None, inspo: str | None = None,
            doll_python: str | None = None) -> None:
     configurar(logs, bandeja, inspo, doll_python)
+    agente.vigilar(_Panel.maquina)  # los avisos de los procesos de esta máquina (las demás los dan sus agentes)
     # Leer y plegar ~450 notas tarda unos segundos: se hace al arrancar, no en la primera búsqueda
     threading.Thread(target=lambda: [c.notas() for c in _Panel.carpetas.values()], daemon=True).start()
     _Panel.usuarios = {u.strip() for u in os.environ.get("BAKERS_PANEL_USUARIOS", "").split(",") if u.strip()}

@@ -1,6 +1,7 @@
 ﻿# Trabajos largos en Pixilate que sobreviven al cerrar SSH (OpenSSH en Windows mata los procesos de la sesión).
 # Corren como tarea programada S4U: sin sesión abierta, sin contraseña guardada, con acceso a la GPU.
 #   job.ps1 start <nombre> <carpeta> "<comando>" [-AtStartup | -Diario HH:mm | -Cada <minutos>] [-Baja]
+#                 [-Proyecto <proyecto> -Proceso <proceso>]   (con -Diario o -Cada: deja un latido, ver abajo)
 #   job.ps1 list
 #   job.ps1 log <nombre> [-Tail 100]
 #   job.ps1 stop <nombre>   (detiene y borra la tarea)
@@ -19,7 +20,11 @@ param(
     [int]$Cada,
     # La prioridad más baja (10, clase inactiva, que heredan los procesos hijos): para trabajos de fondo que solo
     # usan el CPU que nadie más pide
-    [switch]$Baja
+    [switch]$Baja,
+    # Con -Diario o -Cada: al terminar deja un latido en ~\.bakers\latidos (proyecto, proceso, código y cada cuánto
+    # corre). Con él, el panel lo agrupa por proyecto y el agente avisa por ntfy si falla o deja de correr
+    [ValidatePattern('^[\w.-]{1,64}$')][string]$Proyecto,
+    [ValidatePattern('^[\w.-]{1,64}$')][string]$Proceso
 )
 $ErrorActionPreference = 'Stop'
 $root = "$HOME\bakery-jobs"
@@ -59,13 +64,39 @@ switch ($Verb) {
         $Dir = (Resolve-Path $Dir).Path
         New-Item -ItemType Directory -Force $root | Out-Null
         $log = "$root\$Name.log"
+        $latido = ''
+        if ($Proyecto -or $Proceso) {
+            if (-not ($Proyecto -and $Proceso)) { throw '-Proyecto y -Proceso van juntos' }
+            if (-not ($Diario -or $Cada)) { throw '-Proyecto va con -Diario o -Cada: el latido es de trabajos programados' }
+            $horas = if ($Diario) { 24 } else { [math]::Round($Cada / 60, 4) }
+            # Mismo formato que escribir_latido de agente.py; el temporal y Move-Item: el agente nunca lee uno a medias
+            $latido = @"
+`$carpeta = "`$HOME\.bakers\latidos"
+New-Item -ItemType Directory -Force `$carpeta | Out-Null
+`$fin = [DateTimeOffset]::Now.ToString("yyyy-MM-dd'T'HH':'mm':'sszzz", [Globalization.CultureInfo]::InvariantCulture)
+`$l = [ordered]@{ proyecto = '$Proyecto'; proceso = '$Proceso'; unidad = '$Name'; codigo = `$codigo; cada_h = $horas; aviso_falla = `$true; fin = `$fin }
+[IO.File]::WriteAllText("`$carpeta\.$Proyecto.$Proceso.json.tmp", (`$l | ConvertTo-Json -Compress), [Text.UTF8Encoding]::new(`$false))
+Move-Item -Force "`$carpeta\.$Proyecto.$Proceso.json.tmp" "`$carpeta\$Proyecto.$Proceso.json"
+"@
+        }
         # El comando va a su propio .ps1 para no pelear con comillas anidadas
         Set-Content "$root\$Name.ps1" -Encoding utf8 -Value @"
 `$env:PYTHONUNBUFFERED = '1'
 Set-Location '$Dir'
 "[bakery] inicio `$(Get-Date -f s)" | Out-File -Encoding utf8 '$log'
-& { $Command } *>&1 | Out-File -Append -Encoding utf8 '$log'
-"[bakery] fin `$(Get-Date -f s) codigo `$LASTEXITCODE" | Out-File -Append -Encoding utf8 '$log'
+`$global:LASTEXITCODE = 0
+`$codigo = 0
+try {
+    & { $Command } *>&1 | Out-File -Append -Encoding utf8 '$log'
+    `$codigo = `$LASTEXITCODE
+} catch {
+    # Un throw del comando corta el script: sin esto el log se quedaba en «inicio» sin decir por qué
+    "[bakery] error: `$(`$_ | Out-String)" | Out-File -Append -Encoding utf8 '$log'
+    `$codigo = 1
+}
+"[bakery] fin `$(Get-Date -f s) codigo `$codigo" | Out-File -Append -Encoding utf8 '$log'
+$latido
+exit `$codigo
 "@
         $action = New-ScheduledTaskAction -Execute powershell.exe -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$root\$Name.ps1`""
         # En sesiones SSH USERDOMAIN vale WORKGROUP: la cuenta local se nombra con COMPUTERNAME

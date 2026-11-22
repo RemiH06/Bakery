@@ -11,6 +11,9 @@ Solo biblioteca estándar y nada de `bakers`: en una Pi corre suelto (`python3 a
   que solo se contesta a esos orígenes.
 - Iniciar, detener y reiniciar solo lo que está en `acciones`; las órdenes son las de `[ordenes]`, cada una con su
   comando fijo. Nada pasa por un shell y ningún texto de la petición llega a un comando sin validar.
+- Procesos: cada trabajo programado deja un latido al terminar (`agente.py latido`, ver `escribir_latido`). Con
+  ellos el panel agrupa Bakery > máquina > proyecto > proceso, y el agente avisa por ntfy si uno falla o deja de
+  correr (`vigilar`). Lo que no tiene latido toma su proyecto de `[proyecto]`, o es de Bakery.
 
 Configuración (TOML, fuera del repo: trae nombres del tailnet), en `~/.bakers/agente.toml` (Windows) o
 `/etc/bakery-agente.toml` (Linux), o la ruta de `BAKERY_AGENTE_CONFIG`:
@@ -20,27 +23,34 @@ Configuración (TOML, fuera del repo: trae nombres del tailnet), en `~/.bakers/a
     origenes = ["https://<panel>.ts.net:8093"]
     servicios = ["adguardhome"]       # Linux: unidades que se muestran; Windows: filtro (vacío = todas las bakery-*)
     acciones = ["adguardhome"]
+    ntfy = "/etc/bakery-agente.ntfy"  # opcional: NTFY_URL y NTFY_TOKEN del tema `bakery` (ntfy-setup.sh)
     [ordenes]
     despertar-pixilate = ["/usr/local/bin/wake-pixilate"]
+    [proyecto]                        # patrones de fnmatch; lo que no casa con ninguno es de Bakery
+    adguardhome = "spidernet"
+    "mapo-*" = "mapo"
     [agentes]                         # solo en la máquina del panel: las otras máquinas
     frambuesa-yi = "https://frambuesa-yi.<tailnet>.ts.net:8094"
 """
 import argparse
+import fnmatch
 import json
 import os
 import re
 import shutil
 import socket
 import subprocess
+import sys
 import threading
 import time
 import tomllib
+import urllib.request
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, urlencode, urlsplit
 
 PUERTO = 8094  # registrado en 48.SkillShot/PORTS.md
 WINDOWS = os.name == "nt"
@@ -52,6 +62,9 @@ CONFIG = Path.home() / ".bakers" / "agente.toml" if WINDOWS else Path("/etc/bake
 # El job.ps1 del clon, junto al paquete (solo Windows). Sin `.parents[3]`: en /opt/bakery-agente no hay tres niveles
 JOB = Path(__file__).resolve().parent / ".." / ".." / ".." / "remote" / "windows" / "job.ps1"
 JOBS = Path.home() / "bakery-jobs"  # logs de job.ps1
+# Fuera del home: en la Pi la escriben unidades de varios usuarios y la lee el del agente (grupo bakery-latidos)
+LATIDOS = Path(os.environ.get("BAKERY_LATIDOS") or (Path.home() / ".bakers" / "latidos" if WINDOWS else "/var/lib/bakery/latidos"))
+PROYECTO_BASE = "bakery"
 _ACCION = threading.Lock()  # una acción a la vez: dos clics seguidos no lanzan dos reinicios
 
 
@@ -72,6 +85,9 @@ class Config:
     acciones: tuple[str, ...] = ()
     ordenes: dict[str, tuple[str, ...]] = field(default_factory=dict)
     agentes: dict[str, str] = field(default_factory=dict)
+    proyectos: tuple[tuple[str, str], ...] = ()  # (patrón, proyecto), en el orden del archivo
+    ntfy: Path | None = None
+    latidos: Path = LATIDOS
 
 
 def cargar(ruta: Path | None = None) -> Config:
@@ -103,8 +119,17 @@ def cargar(ruta: Path | None = None) -> Config:
         if not NOMBRE.fullmatch(k) or not isinstance(v, str) or not re.fullmatch(r"https://[\w.-]+(:\d{1,5})?", v, re.ASCII):
             raise SystemExit(f"Agente {k!r} en {ruta}: `nombre = \"https://host:puerto\"`, sin ruta")
         agentes[k] = v
+    proyectos = []
+    for patron, p in datos.get("proyecto", {}).items():
+        if not isinstance(p, str) or not NOMBRE.fullmatch(p):
+            raise SystemExit(f"Proyecto de {patron!r} en {ruta}: un nombre simple, p. ej. \"mapo\"")
+        proyectos.append((patron, p))
+    ntfy = datos.get("ntfy")
+    if ntfy is not None and not isinstance(ntfy, str):
+        raise SystemExit(f"`ntfy` en {ruta}: la ruta del archivo con NTFY_URL y NTFY_TOKEN")
     nombre = datos.get("nombre") or socket.gethostname().lower()
-    return Config(nombre, lista("usuarios"), lista("origenes"), servicios, acciones, ordenes, agentes)
+    return Config(nombre, lista("usuarios"), lista("origenes"), servicios, acciones, ordenes, agentes, tuple(proyectos),
+                  Path(ntfy).expanduser() if ntfy else None)
 
 
 def _correr(argv: list[str], timeout: int = 30) -> str:
@@ -326,8 +351,88 @@ def _servicios_linux(cfg: Config) -> list[dict]:
     return res
 
 
+# --- Procesos: latidos ----------------------------------------------------------------------------------------
+# Un latido es `<proyecto>.<proceso>.json` en LATIDOS, reescrito al final de cada corrida. Linux: `ExecStopPost=`
+# de la unidad (corre también si falla, con SERVICE_RESULT y EXIT_STATUS); Windows: job.ps1 con -Proyecto.
+# Sirve también para lo que el agente no ve por el bus del sistema (unidades de usuario, cron del WSL).
+
+_DURACION = re.compile(r"(\d+(?:\.\d+)?)([mhd])")
+_HORAS = {"m": 1 / 60, "h": 1, "d": 24}
+
+
+def horas(texto: str) -> float:
+    """`10m`, `6h` o `1d` en horas."""
+    if not (m := _DURACION.fullmatch(texto)) or not 0 < (h := float(m[1]) * _HORAS[m[2]]) <= 24 * 366:
+        raise ValueError(f"duración inválida: {texto!r} (p. ej. 10m, 6h, 1d)")
+    return h
+
+
+def escribir_latido(carpeta: Path, proyecto: str, proceso: str, cada_h: float, codigo: int, unidad: str | None = None,
+                    aviso_falla: bool = True) -> Path:
+    unidad = unidad or f"{proyecto}-{proceso}"
+    for x in (proyecto, proceso, unidad):
+        if not NOMBRE.fullmatch(x):
+            raise ValueError(f"nombre inválido: {x!r}")
+    datos = {"proyecto": proyecto, "proceso": proceso, "unidad": unidad, "codigo": codigo, "cada_h": cada_h,
+             "aviso_falla": aviso_falla, "fin": datetime.now().astimezone().isoformat(timespec="seconds")}
+    archivo = carpeta / f"{proyecto}.{proceso}.json"
+    temporal = carpeta / f".{archivo.name}.tmp"
+    temporal.write_text(json.dumps(datos, ensure_ascii=False), "utf-8")
+    os.chmod(temporal, 0o664)  # el UMask=0077 de las unidades lo dejaría ilegible para el agente
+    os.replace(temporal, archivo)  # quien lee nunca ve un latido a medias
+    return archivo
+
+
+def _estado_latido(codigo: int, edad_h: float, cada_h: float) -> str:
+    # Margen: medio periodo, y al menos una hora para los que corren cada pocos minutos
+    return "falló" if codigo else "atrasado" if edad_h > max(1.5 * cada_h, cada_h + 1) else "bien"
+
+
+def latidos(cfg: Config, ahora: float | None = None) -> list[dict]:
+    ahora = time.time() if ahora is None else ahora
+    res = []
+    for archivo in sorted(cfg.latidos.glob("*.json")):
+        try:
+            d = json.loads(archivo.read_text("utf-8"))
+            fin, cada, codigo = datetime.fromisoformat(d["fin"]), float(d["cada_h"]), int(d["codigo"])
+            if not all(isinstance(d.get(k), str) and NOMBRE.fullmatch(d[k]) for k in ("proyecto", "proceso", "unidad")):
+                raise ValueError("nombres")
+        except (OSError, ValueError, KeyError, TypeError) as e:  # uno roto se ve como falla, no desaparece
+            res.append({"proyecto": PROYECTO_BASE, "proceso": archivo.stem, "unidad": archivo.stem, "estado": "falló",
+                        "detalle": f"latido ilegible: {type(e).__name__}", "fin": None, "codigo": None, "cada_h": None,
+                        "aviso_falla": True})
+            continue
+        estado = _estado_latido(codigo, (ahora - fin.timestamp()) / 3600, cada)
+        res.append({"proyecto": d["proyecto"], "proceso": d["proceso"], "unidad": d["unidad"], "estado": estado,
+                    "detalle": f"cada {_texto_horas(cada)} · " + ("terminó bien" if not codigo else f"terminó con código {codigo}"),
+                    "fin": fin.isoformat(), "codigo": codigo, "cada_h": cada, "aviso_falla": d.get("aviso_falla") is not False})
+    return res
+
+
+def _texto_horas(h: float) -> str:
+    return f"{h / 24:g} d" if h >= 24 and h % 24 == 0 else f"{h:g} h" if h >= 1 else f"{round(h * 60)} min"
+
+
+def proyecto_de(cfg: Config, nombre: str) -> str:
+    return next((p for patron, p in cfg.proyectos if fnmatch.fnmatchcase(nombre, patron)), PROYECTO_BASE)
+
+
 def servicios(cfg: Config) -> list[dict]:
-    return _servicios_windows(cfg) if WINDOWS else _servicios_linux(cfg)
+    """Los servicios de la máquina con su proyecto; los que tienen latido llevan `proceso` y su estado sale de él
+    (una tarea de Windows en `Ready` está bien o mal según cómo terminó). Los latidos sin servicio van al final."""
+    lista = _servicios_windows(cfg) if WINDOWS else _servicios_linux(cfg)
+    por_unidad = {l["unidad"]: l for l in latidos(cfg)}
+    for s in lista:
+        if l := por_unidad.pop(s["nombre"], None):
+            s.update(proyecto=l["proyecto"], proceso=l["proceso"], detalle=l["detalle"], desde=l["fin"])
+            if s["estado"] != "activo":
+                s["estado"] = l["estado"]
+        else:
+            s["proyecto"] = proyecto_de(cfg, s["nombre"])
+    lista += [{"nombre": l["unidad"], "proyecto": l["proyecto"], "proceso": l["proceso"], "estado": l["estado"],
+               "detalle": l["detalle"], "desde": l["fin"], "siguiente": None, "controlable": False}
+              for l in por_unidad.values()]
+    return lista
 
 
 def _conocido(cfg: Config, nombre: str) -> None:
@@ -345,7 +450,10 @@ def log(cfg: Config, nombre: str, n: int = RENGLONES) -> list[str]:
             return []
         with archivo.open(encoding="utf-8-sig", errors="replace") as f:  # Out-File de PowerShell 5.1 escribe BOM
             return [x.rstrip() for x in deque(f, n)]
-    salida = _correr(["journalctl", "-u", f"{nombre}.service", "-n", str(n), "--no-pager", "-o", "short-iso", "--quiet"])
+    # Lo que no está en `servicios` llegó por su latido: una unidad de usuario (lo que escribe ella, o su manager)
+    filtro = (["-u", f"{nombre}.service"] if nombre in cfg.servicios
+              else [f"_SYSTEMD_USER_UNIT={nombre}.service", "+", f"USER_UNIT={nombre}.service"])
+    salida = _correr(["journalctl", *filtro, "-n", str(n), "--no-pager", "-o", "short-iso", "--quiet"])
     return salida.splitlines()
 
 
@@ -381,6 +489,73 @@ def orden(cfg: Config, nombre: str) -> dict:
     finally:
         _ACCION.release()
     return {"orden": nombre, "salida": salida.strip()[-400:]}
+
+
+# --- Avisos ---------------------------------------------------------------------------------------------------
+
+CADA_REVISION = 300  # s entre revisiones de los latidos
+GRACIA = 1800        # s tras arrancar sin avisar atrasos: la máquina estuvo apagada y sus timers se ponen al día
+_ARRANQUE = time.time()
+# shortcut: en memoria; tras reiniciar el agente se repite una vez el aviso de lo que siga mal. Basta mientras
+# los reinicios sean raros; si molesta, guardarlo junto a los latidos.
+_avisados: dict[str, str] = {}
+
+
+class _NoSeguir(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *_):
+        return None  # un 3xx llevaría el token a otro host: queda como error
+
+
+def avisar(cfg: Config, titulo: str, mensaje: str, prioridad: str = "high", etiquetas: str = "rotating_light") -> bool:
+    """Publica en ntfy con el archivo `ntfy` de la configuración (formato de ntfy-setup.sh). Sin él, solo stderr."""
+    print(f"[aviso] {titulo}: {mensaje}", file=sys.stderr, flush=True)
+    if not cfg.ntfy:
+        return False
+    try:
+        env = dict(x.split("=", 1) for x in cfg.ntfy.read_text("utf-8").splitlines() if "=" in x)
+        # Título y etiquetas en la URL: las cabeceras HTTP no llevan acentos sin codificarlos
+        url = f"{env['NTFY_URL']}?{urlencode({'title': titulo, 'priority': prioridad, 'tags': etiquetas})}"
+        pedido = urllib.request.Request(url, data=mensaje.encode("utf-8"), headers={"Authorization": f"Bearer {env['NTFY_TOKEN']}"})
+        with urllib.request.build_opener(_NoSeguir).open(pedido, timeout=15) as r:
+            return r.status == 200
+    except (OSError, KeyError, ValueError) as e:
+        print(f"[aviso] no salió: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+        return False
+
+
+def revisar(cfg: Config, ahora: float | None = None) -> list[str]:
+    """Avisa una vez cada cambio a mal (falló, atrasado) y cuando vuelve a estar bien. Devuelve los títulos."""
+    ahora = time.time() if ahora is None else ahora
+    enviados = []
+    for l in latidos(cfg, ahora):
+        clave, estado = f"{l['proyecto']}.{l['proceso']}", l["estado"]
+        quien = f"{l['proyecto']} · {l['proceso']} en {cfg.nombre}"
+        if estado == "atrasado" and ahora - _ARRANQUE < GRACIA:
+            continue
+        if estado == "falló" and l["aviso_falla"] or estado == "atrasado":
+            if _avisados.get(clave) != estado:
+                _avisados[clave] = estado
+                cuando = f"última corrida: {l['fin'] or 'nunca'}"
+                titulo = f"Bakery: {quien} " + ("falló" if estado == "falló" else "no ha corrido")
+                avisar(cfg, titulo, f"{l['detalle']}; {cuando}")
+                enviados.append(titulo)
+        elif estado == "bien" and _avisados.pop(clave, None):
+            titulo = f"Bakery: {quien} volvió a terminar bien"
+            avisar(cfg, titulo, l["detalle"], "default", "white_check_mark")
+            enviados.append(titulo)
+    return enviados
+
+
+def vigilar(cfg: Config) -> None:
+    """Revisa los latidos cada CADA_REVISION s en un hilo aparte (agente suelto y panel)."""
+    def vuelta():
+        while True:
+            try:
+                revisar(cfg)
+            except Exception as e:  # una revisión rota no debe tumbar al agente: se reporta y se sigue
+                print(f"[aviso] revisión fallida: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+            time.sleep(CADA_REVISION)
+    threading.Thread(target=vuelta, daemon=True, name="vigilar").start()
 
 
 def maquina(cfg: Config) -> dict:
@@ -471,8 +646,35 @@ class _Agente(BaseHTTPRequestHandler):
             super().log_message(formato, *args)
 
 
+def _latido(argv: list[str]) -> None:
+    p = argparse.ArgumentParser(prog="agente.py latido", description="Deja el latido de un proceso al terminar. En una "
+                                "unidad: ExecStopPost=/usr/bin/python3 -I /opt/bakery-agente/agente.py latido PROYECTO PROCESO --cada 1d --unidad %N")
+    p.add_argument("proyecto")
+    p.add_argument("proceso")
+    p.add_argument("--cada", required=True, help="cada cuánto debe correr: 10m, 6h, 1d")
+    p.add_argument("--unidad", help="servicio o tarea al que pertenece (por defecto PROYECTO-PROCESO)")
+    p.add_argument("--codigo", type=int, help="código de salida; en systemd sale de SERVICE_RESULT y EXIT_STATUS")
+    p.add_argument("--sin-aviso-falla", action="store_true", help="el proyecto ya avisa sus fallas; solo se avisan atrasos")
+    p.add_argument("--carpeta", type=Path, default=LATIDOS)
+    a = p.parse_args(argv)
+    codigo = a.codigo
+    if codigo is None:
+        if (resultado := os.environ.get("SERVICE_RESULT")) is None:
+            p.error("fuera de systemd hace falta --codigo")
+        salida = os.environ.get("EXIT_STATUS", "")
+        codigo = 0 if resultado == "success" else int(salida) if salida.isdigit() and int(salida) else 1
+    try:
+        print(escribir_latido(a.carpeta, a.proyecto, a.proceso, horas(a.cada), codigo, a.unidad, not a.sin_aviso_falla))
+    except (ValueError, OSError) as e:
+        p.error(str(e))
+
+
 def main(argv: list[str] | None = None) -> None:
-    p = argparse.ArgumentParser(description="Agente de máquina de Bakery (solo 127.0.0.1; lo publica tailscale serve)")
+    argv = sys.argv[1:] if argv is None else argv
+    if argv[:1] == ["latido"]:
+        return _latido(argv[1:])
+    p = argparse.ArgumentParser(description="Agente de máquina de Bakery (solo 127.0.0.1; lo publica tailscale serve). "
+                                "`agente.py latido -h`: dejar el latido de un proceso.")
     p.add_argument("--puerto", type=int, default=PUERTO)
     p.add_argument("--config", type=Path)
     a = p.parse_args(argv)
@@ -481,6 +683,7 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit("Define `usuarios` en la configuración: sin lista, el agente no arranca")
     _Agente.cfg = cfg
     muestrear()
+    vigilar(cfg)
     servidor = ThreadingHTTPServer(("127.0.0.1", a.puerto), _Agente)
     print(f"Agente de {cfg.nombre} en http://127.0.0.1:{a.puerto} ({len(cfg.servicios)} servicios, {len(cfg.acciones)} con acciones)",
           flush=True)

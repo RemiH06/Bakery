@@ -41,11 +41,12 @@ Cerrar SSH mata lo que se lanzó en la sesión. `job.ps1` (corre en Pixilate) lo
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\remote\windows\job.ps1 start <nombre> <carpeta> "<comando>"
-# -AtStartup: además al arrancar Windows · -Diario HH:mm: cada día a esa hora, sin lanzarlo ahora
+# -AtStartup: además al arrancar Windows · -Diario HH:mm: cada día a esa hora, sin lanzarlo ahora · -Cada <min>
+# -Proyecto mapo -Proceso respaldo (con -Diario o -Cada): deja un latido al terminar (ver "Procesos y latidos")
 # list · log <nombre> -Tail 50 · stop <nombre> (la borra) · kill <nombre> (la detiene y la deja registrada)
 ```
 
-Logs en `~\bakery-jobs\<nombre>.log`.
+Logs en `~\bakery-jobs\<nombre>.log`. Si el comando lanza un error, queda en el log y la tarea termina con código 1 (antes el log se quedaba en «inicio»).
 
 ## 3. Wake-on-LAN (opcional, cuando el clúster esté armado)
 
@@ -67,6 +68,16 @@ sudo remote/debian/agente-setup.sh   # la primera vez deja /etc/bakery-agente.to
 
 Crea el usuario `bakery-agente` (sin shell ni home, en `systemd-journal` para leer logs), copia el agente a `/opt/bakery-agente` (de root: el usuario de siempre no puede cambiar el código del servicio), genera la regla de polkit que solo le deja iniciar, detener y reiniciar las unidades de `acciones`, instala la unidad `bakery-agente` endurecida (`NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome`, 128 MB) y la publica solo al tailnet en el 8094. Volver a correrlo al actualizar el agente o cambiar `acciones`. Verificar: `sudo -u bakery-agente systemctl --no-ask-password restart ssh` debe dar `Access denied`. Apagar: `sudo tailscale serve --https=8094 off && sudo systemctl disable --now bakery-agente`.
 
+### Procesos y latidos
+
+El panel ordena todo en cuatro niveles: Bakery (la opción «Bakery (todas)» del menú de máquinas) > máquina > proyecto > proceso. Un **proceso** es un trabajo programado que deja un latido al terminar: un JSON en `/var/lib/bakery/latidos/` (Linux) o `~\.bakers\latidos\` (Windows) con su proyecto, proceso, código de salida y cada cuánto debe correr. El agente lo marca `bien`, `falló` o `atrasado` (pasó medio periodo de más, y al menos una hora) y avisa por ntfy una vez por cambio, también cuando vuelve a terminar bien. Durante 30 min tras arrancar no avisa atrasos: los timers se están poniendo al día.
+
+- Unidad de systemd (de sistema o de usuario): `ExecStopPost=/usr/bin/python3 -I /opt/bakery-agente/agente.py latido PROYECTO PROCESO --cada 1d --unidad %N`. Corre aunque la unidad falle y toma el código de `SERVICE_RESULT` y `EXIT_STATUS`. Con `ProtectSystem=strict`, sumar `-/var/lib/bakery/latidos` a `ReadWritePaths`. `--sin-aviso-falla` si el proyecto ya avisa sus fallas (solo se avisan atrasos).
+- Tarea de Windows: `job.ps1 start ... -Diario 04:00 -Proyecto tabularium -Proceso respaldo`.
+- Cron u otro: `agente.py latido PROYECTO PROCESO --cada 1d --codigo $?` (con `--carpeta` si escribe en otra máquina, como el WSL a `/mnt/c/Users/<usuario>/.bakers/latidos`).
+
+`agente-setup.sh` crea la carpeta (grupo `bakery-latidos`, setgid) y mete ahí a quien corrió sudo. Sus unidades de usuario lo ven tras reiniciar su manager. Los servicios sin latido toman su proyecto de `[proyecto]` en la configuración del agente (patrones de fnmatch, p. ej. `"mapo-*" = "mapo"`); el resto es de Bakery. Un latido sin servicio en la lista (una unidad de usuario) aparece igual, con su log del journal.
+
 ## 5. Avisos con ntfy (frambuesa-yi)
 
 Notificaciones al teléfono para los proyectos que corren en la Pi. Un tema por proyecto:
@@ -75,7 +86,7 @@ Notificaciones al teléfono para los proyectos que corren en la Pi. Un tema por 
 sudo remote/debian/ntfy-setup.sh tabularium   # se puede volver a correr; no cambia contraseñas ni tokens que ya existen
 ```
 
-Instala ntfy del repositorio oficial (verifica la huella de la llave antes de confiar en ella), lo deja en `127.0.0.1:8095` con `auth-default-access: deny-all` y lo publica solo al tailnet. Cada tema recibe un usuario de ntfy que solo puede escribir en él y un token en `~/.config/ntfy/TEMA.env` (600) del usuario que corrió sudo. El usuario `remi` solo lee; su contraseña queda en `/etc/ntfy/remi.txt` (de root). En el teléfono: app de ntfy (con Tailscale activo), servidor `https://frambuesa-yi.<tailnet>.ts.net:8095`, usuario `remi`, suscribirse al tema. Verificar: publicar sin token da 403. Límite: si la Pi se apaga, nadie avisa. Apagar: `sudo tailscale serve --https=8095 off && sudo systemctl disable --now ntfy`.
+Instala ntfy del repositorio oficial (verifica la huella de la llave antes de confiar en ella), lo deja en `127.0.0.1:8095` con `auth-default-access: deny-all` y lo publica solo al tailnet. Cada tema recibe un usuario de ntfy que solo puede escribir en él y un token en `~/.config/ntfy/TEMA.env` (600) del usuario que corrió sudo. El usuario `remi` solo lee; su contraseña queda en `/etc/ntfy/remi.txt` (de root). En el teléfono: app de ntfy (con Tailscale activo), servidor `https://frambuesa-yi.<tailnet>.ts.net:8095`, usuario `remi`, suscribirse al tema. Verificar: publicar sin token da 403. Los procesos de cada máquina avisan en el tema `bakery`: `sudo remote/debian/ntfy-setup.sh bakery` antes de `agente-setup.sh`, que copia el token a `/etc/bakery-agente.ntfy` (640, solo el agente); en Pixilate, el mismo archivo con la URL del tailnet y su ruta en `ntfy` de `~\.bakers\agente.toml`. Límite: si la Pi se apaga, nadie avisa. Apagar: `sudo tailscale serve --https=8095 off && sudo systemctl disable --now ntfy`.
 
 Desde el 2026-11-14 las unidades de `frambuesa-yi` respetan `MemoryMax`: `cgroup_enable=memory` al final de `/boot/firmware/cmdline.txt` (original en `cmdline.txt.antes-cgroup`). Verificar: `cat /sys/fs/cgroup/cgroup.controllers` incluye `memory`.
 

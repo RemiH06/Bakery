@@ -18,6 +18,21 @@ puerto=8094  # registrado en 48.SkillShot/PORTS.md
 id bakery-agente &>/dev/null || useradd --system --no-create-home --shell /usr/sbin/nologin bakery-agente
 usermod -aG systemd-journal bakery-agente
 
+# Latidos (ver `escribir_latido` en agente.py): los escriben las unidades de quien esté en bakery-latidos (y las de
+# root); el agente solo los lee. setgid: cada latido nuevo queda del grupo, sea quien sea quien lo escriba.
+dueno="${SUDO_USER:?córrelo con sudo desde tu usuario}"
+getent group bakery-latidos >/dev/null || groupadd --system bakery-latidos
+if ! id -nG "$dueno" | grep -qw bakery-latidos; then
+  usermod -aG bakery-latidos "$dueno"
+  echo "$dueno entra a bakery-latidos: sus unidades de usuario lo ven tras \`sudo systemctl restart user@$(id -u "$dueno")\`"
+fi
+install -d -o root -g root -m 755 /var/lib/bakery
+install -d -o root -g bakery-latidos -m 2775 /var/lib/bakery/latidos
+
+# Avisos: el token del tema `bakery` que deja `ntfy-setup.sh bakery`, legible solo para el agente
+ntfy_origen="$(getent passwd "$dueno" | cut -d: -f6)/.config/ntfy/bakery.env"
+[[ -f $ntfy_origen ]] && install -o root -g bakery-agente -m 640 "$ntfy_origen" /etc/bakery-agente.ntfy
+
 # Copia de root: el usuario de siempre (con sudo) no puede cambiar el código que corre el servicio
 install -d -o root -g root -m 755 /opt/bakery-agente
 install -o root -g root -m 644 "$origen" /opt/bakery-agente/agente.py
@@ -30,6 +45,10 @@ usuarios = []      # logins del tailnet que pueden entrar, p. ej. ["alguien@gith
 origenes = []      # el panel, p. ej. ["https://<pixilate>.<tailnet>.ts.net:8093"]
 servicios = []     # unidades de systemd que se muestran, sin .service
 acciones = []      # las que se pueden iniciar, detener y reiniciar (también en servicios)
+# ntfy = "/etc/bakery-agente.ntfy"  # avisos de procesos que fallan o dejan de correr (lo copia este script)
+
+[proyecto]
+# adguardhome = "spidernet"        # a qué proyecto va cada servicio sin latido (fnmatch); el resto es de Bakery
 
 [ordenes]
 # despertar-pixilate = ["/usr/local/bin/wake-pixilate"]

@@ -142,3 +142,105 @@ def test_historial_solo_con_las_series_de_la_maquina(monkeypatch):
     h = agente.historial()
     assert len(h["t"]) == len(h["cpu"]) == len(h["ram"]) == 2 and "gpu" not in h and "vram" not in h
     assert agente.recursos()["gpu"] is None
+
+
+def test_proyecto_y_ntfy_en_la_configuracion(tmp_path):
+    archivo = tmp_path / "a.toml"
+    archivo.write_text('ntfy = "~/ntfy.env"\n[proyecto]\nadguardhome = "spidernet"\n"mapo-*" = "mapo"\n', "utf-8")
+    cfg = agente.cargar(archivo)
+    assert cfg.ntfy == agente.Path("~/ntfy.env").expanduser()
+    assert [agente.proyecto_de(cfg, n) for n in ("adguardhome", "mapo-respaldo", "cola")] == ["spidernet", "mapo", "bakery"]
+    archivo.write_text('[proyecto]\nx = "dos palabras"\n', "utf-8")
+    with pytest.raises(SystemExit):
+        agente.cargar(archivo)
+
+
+def test_latidos_y_su_estado(tmp_path):
+    assert [agente.horas(x) for x in ("10m", "6h", "1d", "1.5h")] == [1 / 6, 6, 24, 1.5]
+    for malo in ("", "1", "0h", "1w", "-1h", "400d"):
+        with pytest.raises(ValueError):
+            agente.horas(malo)
+    agente.escribir_latido(tmp_path, "tabularium", "diario", 24, 0)
+    agente.escribir_latido(tmp_path, "mapo", "respaldo", 24, 2, unidad="respaldo", aviso_falla=False)
+    agente.escribir_latido(tmp_path, "bakery", "analizar", 1 / 6, 0)
+    (tmp_path / "roto.json").write_text("{", "utf-8")
+    with pytest.raises(ValueError):
+        agente.escribir_latido(tmp_path, "a b", "x", 1, 0)
+    assert not list(tmp_path.glob(".*.tmp"))
+    cfg = agente.Config("fresa", latidos=tmp_path)
+    ahora = agente.time.time()
+    estados = lambda t: {l["proceso"]: l["estado"] for l in agente.latidos(cfg, t)}  # noqa: E731
+    assert estados(ahora) == {"analizar": "bien", "respaldo": "falló", "diario": "bien", "roto": "falló"}
+    # Cada 10 min: atrasado pasada la hora y 10 min; diario: pasadas 36 h
+    assert estados(ahora + 3600)["analizar"] == "bien" and estados(ahora + 4300)["analizar"] == "atrasado"
+    assert estados(ahora + 35 * 3600)["diario"] == "bien" and estados(ahora + 37 * 3600)["diario"] == "atrasado"
+    mapo = next(l for l in agente.latidos(cfg, ahora) if l["proyecto"] == "mapo")
+    assert (mapo["unidad"], mapo["aviso_falla"], mapo["detalle"]) == ("respaldo", False, "cada 1 d · terminó con código 2")
+
+
+def test_servicios_agrupados_por_proyecto(tmp_path, monkeypatch):
+    monkeypatch.setattr(agente, "WINDOWS", False)
+    monkeypatch.setattr(agente, "_servicios_linux", lambda cfg: [
+        {"nombre": n, "estado": e, "detalle": "", "desde": None, "siguiente": None, "controlable": False}
+        for n, e in (("adguardhome", "activo"), ("tabularium-respaldo", "detenido"), ("ssh", "activo"))])
+    agente.escribir_latido(tmp_path, "tabularium", "respaldo", 24, 1)
+    agente.escribir_latido(tmp_path, "tabularium", "diario", 24, 0)  # unidad de usuario: no está en `servicios`
+    cfg = agente.Config("fresa", latidos=tmp_path, proyectos=(("adguard*", "spidernet"),))
+    s = {x["nombre"]: x for x in agente.servicios(cfg)}
+    assert {n: (x["proyecto"], x["estado"], x.get("proceso")) for n, x in s.items()} == {
+        "adguardhome": ("spidernet", "activo", None), "ssh": ("bakery", "activo", None),
+        "tabularium-respaldo": ("tabularium", "falló", "respaldo"), "tabularium-diario": ("tabularium", "bien", "diario")}
+    assert s["tabularium-diario"]["controlable"] is False
+
+
+def test_log_de_una_unidad_de_usuario(tmp_path, monkeypatch):
+    llamadas = []
+    monkeypatch.setattr(agente, "WINDOWS", False)
+    monkeypatch.setattr(agente, "_servicios_linux", lambda cfg: [])
+    monkeypatch.setattr(agente, "_correr", lambda argv, timeout=30: llamadas.append(argv) or "renglón\n")
+    agente.escribir_latido(tmp_path, "tabularium", "diario", 24, 0)
+    assert agente.log(agente.Config("fresa", latidos=tmp_path), "tabularium-diario") == ["renglón"]
+    assert llamadas[-1][1:4] == ["_SYSTEMD_USER_UNIT=tabularium-diario.service", "+", "USER_UNIT=tabularium-diario.service"]
+
+
+def test_avisos_una_vez_por_cambio(tmp_path, monkeypatch):
+    enviados = []
+    monkeypatch.setattr(agente, "avisar", lambda cfg, titulo, *a, **k: enviados.append(titulo))
+    monkeypatch.setattr(agente, "_avisados", {})
+    cfg = agente.Config("fresa", latidos=tmp_path)
+    ahora = agente.time.time()
+    monkeypatch.setattr(agente, "_ARRANQUE", ahora - agente.GRACIA - 1)
+    agente.escribir_latido(tmp_path, "tabularium", "diario", 24, 1)
+    agente.escribir_latido(tmp_path, "tabularium", "oido", 1, 1, aviso_falla=False)  # su proyecto ya avisa la falla
+    assert agente.revisar(cfg, ahora) == ["Bakery: tabularium · diario en fresa falló"]
+    assert agente.revisar(cfg, ahora) == []  # el mismo estado no se repite
+    agente.escribir_latido(tmp_path, "tabularium", "diario", 24, 0)
+    assert agente.revisar(cfg, ahora) == ["Bakery: tabularium · diario en fresa volvió a terminar bien"]
+    # Atrasado: se avisa aunque el proyecto avise sus fallas, pero no recién prendida la máquina
+    agente.escribir_latido(tmp_path, "tabularium", "oido", 1, 0)
+    tarde = ahora + 3 * 3600
+    monkeypatch.setattr(agente, "_ARRANQUE", tarde - 60)
+    assert agente.revisar(cfg, tarde) == []
+    monkeypatch.setattr(agente, "_ARRANQUE", ahora)
+    assert sorted(agente.revisar(cfg, tarde)) == ["Bakery: tabularium · oido en fresa no ha corrido"]
+
+
+def test_latido_desde_systemd(tmp_path, monkeypatch):
+    def leer():
+        return agente.json.loads((tmp_path / "doll.sentido.json").read_text("utf-8"))["codigo"]
+    base = ["latido", "doll", "sentido", "--cada", "1d", "--carpeta", str(tmp_path)]
+    monkeypatch.setenv("SERVICE_RESULT", "exit-code")
+    monkeypatch.setenv("EXIT_STATUS", "3")
+    agente.main(base)
+    assert leer() == 3
+    monkeypatch.setenv("EXIT_STATUS", "SEGV")  # señal: no es número, cuenta como falla
+    agente.main(base)
+    assert leer() == 1
+    monkeypatch.setenv("SERVICE_RESULT", "success")
+    monkeypatch.setenv("EXIT_STATUS", "0")
+    agente.main(base)
+    assert leer() == 0
+    monkeypatch.delenv("SERVICE_RESULT")
+    with pytest.raises(SystemExit):
+        agente.main(base)  # fuera de systemd, sin --codigo
+    agente.main([*base, "--codigo", "0"])

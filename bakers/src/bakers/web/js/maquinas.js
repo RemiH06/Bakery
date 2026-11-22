@@ -2,12 +2,38 @@
 // rendimiento del Administrador de tareas; a la derecha la gráfica grande del elegido con sus datos; abajo los
 // servicios y, al lado, el log del que se pida. La máquina del panel responde por el panel; las demás, por su agente,
 // al que el navegador llama directo (el servidor del panel no tiene permisos sobre otras máquinas).
+// Arriba del menú va «Bakery»: todas las máquinas a la vez, con sus servicios y procesos agrupados por proyecto
+// (Bakery > máquina > proyecto > proceso). El proyecto lo da el latido del proceso o `[proyecto]` del agente.
 import { api, el, hora, poner } from "./util.js";
 
 const CADA = 5000;    // ms entre consultas: lo mismo que tarda el agente en tomar otra muestra
+const CADA_TODAS = 30000;  // la vista de todas pide cada máquina completa: más espaciado
 const ESPERA = 8000;  // una máquina apagada no responde: no se espera más que esto
+const TODAS = "*";    // valor del menú para la vista de Bakery completa
 const VERBO = { iniciar: "Iniciar", detener: "Detener", reiniciar: "Reiniciar" };
-const CLASE = { activo: "e-analizado", arrancando: "e-pendiente", "deteniéndose": "e-pendiente", "falló": "e-fallido", "no existe": "e-fallido" };
+const CLASE = { activo: "e-analizado", bien: "e-analizado", arrancando: "e-pendiente", "deteniéndose": "e-pendiente",
+  atrasado: "e-pendiente", "falló": "e-fallido", "no existe": "e-fallido" };
+const MAL = new Set(["falló", "atrasado", "no existe"]);
+const BASE = "bakery";  // lo que no tiene proyecto propio; va primero
+
+// [[proyecto, servicios]], Bakery primero y luego por nombre
+function porProyecto(servicios) {
+  const grupos = new Map();
+  for (const s of servicios) {
+    const p = s.proyecto || BASE;
+    grupos.set(p, [...(grupos.get(p) || []), s]);
+  }
+  return [...grupos].sort(([a], [b]) => (a === BASE ? -1 : b === BASE ? 1 : a.localeCompare(b, "es")));
+}
+const cuenta = (n, uno, varios) => `${n} ${n === 1 ? uno : varios}`;
+function resumenDe(ss) {
+  const procesos = ss.filter(s => s.proceso).length, servicios = ss.length - procesos;
+  return [procesos && cuenta(procesos, "proceso", "procesos"), servicios && cuenta(servicios, "servicio", "servicios")].filter(Boolean).join(", ");
+}
+const insignia = (s) => el("span", { class: `insignia ${CLASE[s.estado] || ""}` }, s.estado);
+// Un proceso dice cuándo terminó la última vez; un servicio, desde cuándo está en su estado
+const cuando = (s) => s.desde ? el("span", { class: "tenue" }, `${s.proceso ? "última" : "desde"} ${hora(s.desde)}`) : null;
+const motivoDe = (e) => e.name === "TimeoutError" ? "no respondió en 8 s: apagada, dormida o fuera del tailnet" : e.message;
 const SVG = "http://www.w3.org/2000/svg";
 
 // Cada recurso: de qué serie del historial sale, su tope y cómo se dice su valor
@@ -59,16 +85,17 @@ export function crear(raiz, navegar) {
   const lista = el("div", { class: "pila" });
   const log = el("div", { class: "pila log-maquina" }, el("p", { class: "tenue" }, "Elige «Log» en un servicio para verlo aquí."));
   const avisoAccion = el("p", { class: "tenue", role: "status" });
+  const todas = el("div", { class: "pila todas", "aria-label": "Bakery: todas las máquinas", hidden: true });
+  const rendimiento = el("section", { class: "tarjeta rendimiento", "aria-labelledby": "rec-t" }, lado,
+    el("div", { class: "principal" }, titulo, grande, detalle));
+  const abajo = el("div", { class: "maq-abajo" },
+    el("section", { class: "tarjeta", "aria-labelledby": "srv-t" }, el("h3", { id: "srv-t" }, "Servicios y procesos"), lista, avisoAccion),
+    el("section", { class: "tarjeta", "aria-label": "Log" }, log));
 
-  raiz.append(
-    el("div", { class: "barra-maquinas" }, el("label", { for: "maquina" }, "Máquina"), menu, sello),
-    el("section", { class: "tarjeta rendimiento", "aria-labelledby": "rec-t" }, lado,
-      el("div", { class: "principal" }, titulo, grande, detalle)),
-    el("div", { class: "maq-abajo" },
-      el("section", { class: "tarjeta", "aria-labelledby": "srv-t" }, el("h3", { id: "srv-t" }, "Servicios"), lista, avisoAccion),
-      el("section", { class: "tarjeta", "aria-label": "Log" }, log)));
+  raiz.append(el("div", { class: "barra-maquinas" }, el("label", { for: "maquina" }, "Máquina"), menu, sello), todas, rendimiento, abajo);
   menu.addEventListener("change", () => navegar("maquinas", { m: menu.value, r: estado.r }));
 
+  const enTodas = () => (estado.m ?? TODAS) === TODAS;
   const actual = () => maquinas?.find(m => m.nombre === estado.m) || maquinas?.[0];
   const pedir = (m, ruta, cuerpo, senal) => api(`${m.url}${ruta}`, cuerpo, senal || AbortSignal.timeout(cuerpo ? 120000 : ESPERA));
 
@@ -182,9 +209,8 @@ export function crear(raiz, navegar) {
   }
 
   function pintarServicios(m, d) {
-    const filas = d.servicios.map(s => el("li", {},
-      el("div", { class: "fila" }, el("span", { class: `insignia ${CLASE[s.estado] || ""}` }, s.estado), el("b", {}, s.nombre),
-        s.desde ? el("span", { class: "tenue" }, `desde ${hora(s.desde)}`) : null),
+    const fila = (s) => el("li", {},
+      el("div", { class: "fila" }, insignia(s), el("b", {}, s.nombre), cuando(s)),
       el("span", { class: "tenue" }, [s.detalle, s.siguiente ? `siguiente: ${hora(s.siguiente)}` : null].filter(Boolean).join(" · ")),
       el("div", { class: "fila" },
         ...(s.controlable ? Object.entries(VERBO).filter(([v]) => (v === "iniciar") !== (s.estado === "activo")).map(([v, texto]) => {
@@ -194,13 +220,42 @@ export function crear(raiz, navegar) {
           return b;
         }) : []),
         el("button", { type: "button", class: "boton", "aria-pressed": String(logDe === s.nombre), "aria-label": `Log de ${s.nombre}`,
-          onclick: () => verLog(m, s.nombre) }, "Log"))));
+          onclick: () => verLog(m, s.nombre) }, "Log")));
+    const grupos = porProyecto(d.servicios).map(([p, ss]) => el("section", { class: "proyecto", "aria-label": `Proyecto ${p}` },
+      el("h4", {}, p, el("span", { class: "tenue" }, ` · ${resumenDe(ss)}`)), el("ul", { class: "items" }, ss.map(fila))));
     const ordenes = d.ordenes.length ? el("div", { class: "fila" }, el("span", { class: "tenue" }, "Órdenes:"), d.ordenes.map(o => {
       const b = el("button", { type: "button", class: "boton" }, o);
       b.addEventListener("click", () => actuar(m, "/api/orden", { orden: o }, `¿Correr «${o}» en ${m.nombre}?`, b));
       return b;
     })) : null;
-    poner(lista, d.servicios.length ? el("ul", { class: "items" }, filas) : el("p", { class: "tenue" }, "Sin servicios en la lista de esta máquina."), ordenes);
+    poner(lista, grupos.length ? grupos : el("p", { class: "tenue" }, "Sin servicios ni procesos en esta máquina."), ordenes);
+  }
+
+  // --- Bakery: todas las máquinas, por proyecto ---
+  function pintarTodas(resultados) {
+    poner(todas, resultados.map(([m, d, e]) => el("section", { class: "tarjeta", "aria-label": m.nombre },
+      el("div", { class: "fila" }, el("h3", {}, m.nombre),
+        el("span", { class: d ? "tenue" : "error" }, d ? `${d.sistema} · ${new Date(d.hora).toLocaleTimeString("es-MX")}` : `sin respuesta: ${motivoDe(e)}`),
+        el("button", { type: "button", class: "boton", onclick: () => navegar("maquinas", { m: m.nombre }) }, `Abrir ${m.nombre}`)),
+      d ? porProyecto(d.servicios).map(([p, ss]) => {
+        const malos = ss.filter(s => MAL.has(s.estado)).length;
+        // Cerrado si todo está bien: lo que pide atención se ve sin abrir nada
+        return el("details", { class: "proyecto", open: malos > 0 },
+          el("summary", {}, el("b", {}, p), ` · ${resumenDe(ss)} `,
+            malos ? el("span", { class: "insignia e-fallido" }, cuenta(malos, "pide atención", "piden atención")) : null),
+          el("ul", { class: "items" }, ss.map(s => el("li", {},
+            el("div", { class: "fila" }, insignia(s), el("b", {}, s.proceso || s.nombre), cuando(s)),
+            el("span", { class: "tenue" }, [s.proceso ? s.nombre : null, s.detalle].filter(Boolean).join(" · "))))));
+      }) : null)));
+  }
+
+  async function consultarTodas() {
+    const lote = maquinas;
+    const resultados = await Promise.all(lote.map(m => pedir(m, "/api/maquina").then(d => [m, d], e => [m, null, e])));
+    if (!enTodas() || lote !== maquinas) return;
+    pintarTodas(resultados);
+    sello.className = "tenue";
+    sello.textContent = `actualizado ${new Date().toLocaleTimeString("es-MX")}`;
   }
 
   function pintar(m, d) {
@@ -222,8 +277,7 @@ export function crear(raiz, navegar) {
       pintar(m, d);
     } catch (e) {
       if (e.name === "AbortError") return;
-      const motivo = e.name === "TimeoutError" ? "no respondió en 8 s: apagada, dormida o fuera del tailnet" : e.message;
-      sello.textContent = `sin respuesta: ${motivo}`;
+      sello.textContent = `sin respuesta: ${motivoDe(e)}`;
       sello.className = "error";
       if (!datos) poner(lado, el("p", { class: "error" }, `Sin datos de ${m.nombre}.`));
       return;
@@ -233,7 +287,7 @@ export function crear(raiz, navegar) {
 
   async function vuelta() {
     if (raiz.hidden || document.hidden) return;
-    await consultar();
+    await (enTodas() ? consultarTodas() : consultar());
   }
 
   return {
@@ -245,7 +299,19 @@ export function crear(raiz, navegar) {
           const d = await api("/api/maquinas");
           maquinas = [{ nombre: d.local, url: "" }, ...Object.entries(d.agentes).map(([nombre, url]) => ({ nombre, url }))];
         } catch (e) { sello.textContent = `Sin lista de máquinas: ${e.message}`; return; }
-        menu.replaceChildren(...maquinas.map(m => el("option", { value: m.nombre }, m.nombre)));
+        menu.replaceChildren(el("option", { value: TODAS }, "Bakery (todas)"), ...maquinas.map(m => el("option", { value: m.nombre }, m.nombre)));
+      }
+      clearInterval(reloj);
+      const vistaTodas = enTodas();
+      todas.hidden = !vistaTodas;
+      rendimiento.hidden = abajo.hidden = vistaTodas;
+      if (vistaTodas) {
+        menu.value = TODAS;
+        datos = null;
+        if (!todas.childElementCount) poner(todas, el("p", { class: "tenue" }, "Consultando todas las máquinas…"));
+        consultarTodas();
+        reloj = setInterval(vuelta, CADA_TODAS);
+        return;
       }
       menu.value = actual().nombre;
       if (antes.m !== estado.m || !datos) {  // otra máquina: nada de lo de la anterior se queda a la vista
@@ -255,7 +321,6 @@ export function crear(raiz, navegar) {
         poner(log, el("p", { class: "tenue" }, "Elige «Log» en un servicio para verlo aquí."));
         consultar();
       } else if (datos) pintar(actual(), datos);  // solo cambió el recurso elegido
-      clearInterval(reloj);
       reloj = setInterval(vuelta, CADA);  // `vuelta` no hace nada con la hoja oculta
     },
   };
