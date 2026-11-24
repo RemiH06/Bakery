@@ -15,6 +15,7 @@ import unicodedata
 from datetime import date
 from importlib.resources import files
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -30,6 +31,8 @@ IMAGENES = (".jpg", ".jpeg", ".png", ".webp")
 VIDEOS = (".mp4", ".mov", ".webm")  # un carrusel de Instagram puede mezclar videos entre las fotos
 # yt-dlp con un post de fotos de Instagram o TikTok; ahí entra gallery-dl
 SIN_VIDEO = ("No video formats found", "Unsupported URL")
+# YouTube a menudo solo da video y audio por separado: se unen como último recurso (a 720 basta para 540 px)
+FORMATO = "b[ext=mp4]/b/bv*[height<=720]+ba"
 LOGPROB_MIN = -1.0  # segmentos de whisper por debajo son alucinación (letra inventada sobre música)
 PLANTILLAS = files("bakers").joinpath("plantillas")
 _HUECO = re.compile(r"\{(\w+)\}")
@@ -48,10 +51,42 @@ def _mmss(s: float) -> str:
     return f"{int(s) // 60:02d}:{int(s) % 60:02d}"
 
 
+# Sitios sin sesión: (prefijo del código, dominios, dónde está el id). Los enlaces cortos (vm.tiktok.com, fb.watch,
+# facebook.com/share) no traen el id del video sin abrirlos: su código es el del enlace corto.
+SITIOS = {
+    "youtube": ("yt", ("youtube.com", "youtu.be"),
+                r"youtu\.be/([\w-]{11})|/(?:shorts|live|embed)/([\w-]{11})|[?&]v=([\w-]{11})"),
+    "tiktok": ("tt", ("tiktok.com",), r"/(?:video|photo)/(\d+)|v[mt]\.tiktok\.com/(\w+)|tiktok\.com/t/(\w+)"),
+    "facebook": ("fb", ("facebook.com", "fb.watch"),
+                 r"/reel/(\d+)|/videos/(?:[^/?]+/)?(\d+)|[?&]v=(\d+)|/share/(?:[rvp]/)?(\w+)|fb\.watch/([\w-]+)"),
+}
+
+
+def sitio(fuente: str) -> str | None:
+    """Sitio de SITIOS al que apunta el enlace, por su dominio (no por texto suelto en la ruta)."""
+    try:
+        host = (urlsplit(fuente).hostname or "").lower()
+    except ValueError:  # p. ej. un corchete suelto en el dominio
+        return None
+    return next((s for s, (_, dominios, _) in SITIOS.items()
+                 if any(host == d or host.endswith(f".{d}") for d in dominios)), None)
+
+
 def codigo(fuente: str) -> str | None:
-    """Código del reel o post de Instagram en el enlace; es también el nombre de su carpeta en CARPETA."""
+    """Código del reel o post en el enlace; es también el nombre de su carpeta en CARPETA. El de Instagram va solo;
+    los demás llevan el prefijo de su sitio (`yt-`, `tt-`, `fb-`) para que dos ids iguales no choquen."""
+    if s := sitio(fuente):
+        prefijo, _, patron = SITIOS[s]
+        m = re.search(patron, fuente)
+        return f"{prefijo}-{next(g for g in m.groups() if g)}" if m else None
     m = re.search(r"instagram\.com/(?:[\w.]+/)?(?:reels?|p)/([\w-]+)", fuente)
     return m[1] if m else None
+
+
+def _cookies(fuente: str, navegador: str) -> list[str]:
+    """Instagram pide sesión: se lee del navegador al momento, nunca se copia a disco. A los de SITIOS no se les
+    manda: sus videos públicos no la piden y descargar con ella arriesga la cuenta."""
+    return [] if sitio(fuente) else ["--cookies-from-browser", navegador]
 
 
 def bajado(clave: str | None) -> Path | None:
@@ -73,7 +108,7 @@ def _galeria(fuente: str, navegador: str) -> Path:
     nombre = codigo(fuente) or "g-" + hashlib.sha1(fuente.encode()).hexdigest()[:10]  # TikTok: el id sale después
     carpeta, parcial = CARPETA / nombre, CARPETA / f"{nombre}.part"
     shutil.rmtree(parcial, ignore_errors=True)
-    _correr("gallery-dl", "--cookies-from-browser", navegador, "--sleep-request", "2", "--write-info-json",
+    _correr("gallery-dl", *_cookies(fuente, navegador), "--sleep-request", "2", "--write-info-json",
             "-D", str(parcial), "-f", "{num:>02}.{extension}", fuente)
     if not _medios(parcial):
         raise BakerError(f"gallery-dl no bajó fotos ni videos: {fuente}")
@@ -100,12 +135,12 @@ def _obtener(fuente: str, navegador: str) -> tuple[Path, dict]:
     if previo:
         return previo, _metadatos(previo)
     CARPETA.mkdir(parents=True, exist_ok=True)
-    # Instagram pide sesión: las cookies se leen del navegador al momento, nunca se copian a disco
+    carpeta = codigo(fuente) if sitio(fuente) else None
     try:
-        salida = _correr("yt-dlp", "--cookies-from-browser", navegador, "--sleep-requests", "2",
+        salida = _correr("yt-dlp", *_cookies(fuente, navegador), "--sleep-requests", "2",
                          "--no-playlist", "--no-progress",
-                         "--match-filter", f"duration<={MAX_SEGUNDOS}", "-f", "b[ext=mp4]/b",
-                         "--write-info-json", "-o", "%(id)s/video.%(ext)s", "--print", "after_move:filepath",
+                         "--match-filter", f"duration<={MAX_SEGUNDOS}", "-f", FORMATO, "--merge-output-format", "mp4",
+                         "--write-info-json", "-o", f"{carpeta or '%(id)s'}/video.%(ext)s", "--print", "after_move:filepath",
                          fuente, cwd=CARPETA)
     except BakerError as e:
         if not any(p in str(e) for p in SIN_VIDEO):

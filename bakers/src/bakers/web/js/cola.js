@@ -7,7 +7,7 @@ const ESTADOS = ["fallido", "bajado", "clasificar", "pendiente", "analizado", "u
 export function crear(raiz, refrescar) {
   let ultimo = null, filtro = "todos";
   const resumen = el("div", { class: "indicadores" });
-  const texto = el("textarea", { id: "texto", required: true, placeholder: "https://www.instagram.com/reel/… o un texto" });
+  const texto = el("textarea", { id: "texto", required: true, placeholder: "Enlaces de Instagram, YouTube, TikTok o Facebook, o un texto" });
   const seccion = el("input", { id: "seccion", list: "secciones", autocomplete: "off" });
   const secciones = el("datalist", { id: "secciones" });
   const aviso = el("span", { id: "aviso", role: "status" });
@@ -84,9 +84,9 @@ export function crear(raiz, refrescar) {
     const fallidos = c.fallido || 0;
     resumen.replaceChildren(
       // El panel no sabe todavía si la tarea `cola` corre (fase 3): solo dice si la cola tiene una pausa
-      indicador("Descargas", enPausa ? "En pausa" : "Sin pausa",
+      indicador("Instagram", enPausa ? "En pausa" : "Sin pausa",
         enPausa ? `${r.motivo}; sigue ${hora(r.proximo)}` : "si la tarea corre, baja de 9:00 a 22:59 con 5 a 15 min entre una y otra"),
-      indicador("Bajadas hoy", `${r.bajados_hoy} de ${d.tope}`, r.bajados_hoy >= d.tope ? "tope lleno: sigue mañana" : null, medidor),
+      indicador("Bajadas hoy de Instagram", `${r.bajados_hoy} de ${d.tope}`, r.bajados_hoy >= d.tope ? "tope lleno: sigue mañana" : null, medidor),
       indicador("Disco", `${d.libre_gb} GB libres`, `analizar pide ${d.min_libre} GB`),
       indicador("Fallidos", String(fallidos), fallidos ? "se reintentan abajo" : "ninguno",
         fallidos ? el("button", { type: "button", class: "boton", "aria-pressed": String(filtro === "fallido"),

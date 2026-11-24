@@ -4,6 +4,9 @@ Instagram marcó la cuenta por actividad automatizada tras ~11 descargas seguida
 la descarga va aparte: una a la vez, con pausas al azar, tope diario, horario de persona despierta y,
 ante el primer bloqueo, 2 a 3 horas sin tocarlo. Todo el estado vive en `cola.json`: si el proceso
 muere o la laptop se apaga, al volver a correr retoma donde iba, pausa pendiente incluida.
+
+YouTube, TikTok y Facebook (`reel.SITIOS`) se bajan sin sesión y llevan su propio ritmo, cada uno por su lado: ni
+gastan el tope de Instagram ni se detienen con sus pausas, y al revés.
 """
 import json
 import os
@@ -29,6 +32,8 @@ TOPE = 30                 # descargas por día; con 100 Instagram cerró la sesi
 HORAS = range(9, 23)      # solo baja de 9:00 a 22:59, como alguien despierto
 ENTRE = (300, 900)        # segundos entre descargas: repartidas en el día, no en ráfaga
 BLOQUEO = (7200, 10800)   # segundos tras un error de Instagram
+ENTRE_OTROS = (60, 180)   # segundos entre descargas de un mismo sitio sin sesión: no hay cuenta que cuidar, sí la IP
+REVISAR = 300             # segundos a lo más dormido: un enlace de otro sitio no espera la pausa de Instagram
 RED = 300                 # sin red (p. ej. al despertar de la suspensión): reintenta sin contar
 STRIKES = 3               # un enlace que da "bloqueo" 3 veces es privado o borrado, no la cuenta
 LOTE = 1                  # reels por llamada a `reel.reel` en `analizar`: con uno, un juego espera a lo más un reel
@@ -43,7 +48,9 @@ _BLOQUEO = ("http error 400", "http error 401", "http error 403", "http error 42
             # gallery-dl: "HttpError: '429 Too Many Requests'", "AuthorizationError"
             "too many requests", "unauthorized", "forbidden", "authorizationerror",
             # gallery-dl con la sesión cerrada (2026-11-11)
-            "redirect to home page")
+            "redirect to home page",
+            # YouTube y TikTok a una IP que pide demasiado
+            "not a bot", "ip address is blocked")
 _RED = ("getaddrinfo", "timed out", "errno 11001", "connection reset", "connection refused",
         "connection aborted", "network is unreachable", "no route to host")
 # Fallas de la infraestructura, no del reel: desatendido, contarlas vaciaría la cola a fallidos en dos pasadas
@@ -160,13 +167,14 @@ def agregar_texto(texto: str, seccion: str | None = None) -> dict:
             if not m:
                 cuenta["sin_enlace"] += bool(linea.strip())
                 continue
-            ig = reel.codigo(m[0])
+            cod = reel.codigo(m[0])
             # Sin el ?stkn=... de rastreo; el tipo (reel o post) se conserva porque yt-dlp los trata distinto
-            url = f"https://www.instagram.com/{'p' if '/p/' in m[0] else 'reel'}/{ig}/" if ig else m[0]
-            clave = ig or url
-            if clave in e["items"]:
+            url = (f"https://www.instagram.com/{'p' if '/p/' in m[0] else 'reel'}/{cod}/"
+                   if cod and not reel.sitio(m[0]) else m[0])
+            clave = cod or url
+            if clave in e["items"] or m[0] in e["items"]:  # antes, los de otros sitios iban por su URL completa
                 cuenta["repetidos"] += 1
-            elif ig and reel.bajado(ig):
+            elif cod and reel.bajado(cod):
                 cuenta["ya_bajados"] += 1
             else:
                 e["items"][clave] = {"url": url, "etiqueta": linea[:m.start()].strip(" :-") or None,
@@ -193,9 +201,35 @@ def _ventana(e: dict, tope: int) -> datetime | None:
     return datetime.fromisoformat(e["pausa_hasta"])
 
 
-def _pausa(e: dict, segundos: float, motivo: str) -> None:
-    e["pausa_hasta"] = (_ahora() + timedelta(seconds=segundos)).isoformat(timespec="seconds")
-    e["motivo"] = motivo
+def _pausa(e: dict, segundos: float, motivo: str, sitio: str | None = None) -> None:
+    """Pausa de un sitio de `reel.SITIOS`, o la de Instagram (y de lo que no está ahí) sin `sitio`."""
+    donde = e.setdefault("sitios", {}).setdefault(sitio, {}) if sitio else e
+    donde["pausa_hasta"] = (_ahora() + timedelta(seconds=segundos)).isoformat(timespec="seconds")
+    donde["motivo"] = motivo
+
+
+def _turno(e: dict, tope: int) -> tuple[str | None, datetime | None, str | None]:
+    """La clave que sigue, o (None, cuándo, motivo) si todo lo pendiente está en pausa."""
+    grupos: dict[str | None, list[str]] = {}
+    for k, i in e["items"].items():
+        if i["estado"] == "pendiente":
+            grupos.setdefault(reel.sitio(i["url"]), []).append(k)
+    libres, esperas = [], []
+    for s, claves in grupos.items():
+        if s is None:
+            cuando, motivo = _ventana(e, tope), e["motivo"]
+        else:
+            p = e.get("sitios", {}).get(s, {})
+            cuando = datetime.fromisoformat(p["pausa_hasta"]) if p.get("pausa_hasta") else None
+            cuando, motivo = (cuando if cuando and cuando > _ahora() else None), f"{s}: {p.get('motivo')}"
+        if cuando:
+            esperas.append((cuando, motivo))
+        else:
+            libres += claves
+    if libres:
+        # Primero los que no han fallado: tras una pausa, si un enlace nuevo baja bien, la cuenta ya está libre
+        return min(libres, key=lambda k: e["items"][k]["intentos"]), None, None
+    return None, *min(esperas, key=lambda x: x[0])
 
 
 def _anotar_error(clave: str, tipo: str, error: str) -> None:
@@ -208,6 +242,7 @@ def _anotar_error(clave: str, tipo: str, error: str) -> None:
 def bajar(tope: int = TOPE) -> dict:
     """Solo descarga (sin modelos), hasta vaciar la cola. Corre días seguidos; matarlo es seguro."""
     navegador = core.BAKERS["reel"]["navegador"]
+    dicho = None  # última espera anunciada: se revisa cada REVISAR s y no hace falta repetirla
     with _candado():
         while True:
             e = _leer()
@@ -215,16 +250,18 @@ def bajar(tope: int = TOPE) -> dict:
             if not pendientes:
                 print(f"[cola] nada pendiente ({_ahora():%Y-%m-%d %H:%M})", flush=True)
                 return estado()
-            cuando = []
-            e = _cambiar(lambda e: cuando.append(_ventana(e, tope)))  # pudo cambiar el día o fijar la pausa
-            cuando = cuando[0]
-            if cuando is not None:
-                print(f"[cola] {e['motivo']}: sigue {cuando:%Y-%m-%d %H:%M}", flush=True)
-                _dormir_hasta(cuando)
+            turno = []
+            e = _cambiar(lambda e: turno.append(_turno(e, tope)))  # pudo cambiar el día o fijar la pausa
+            clave, cuando, motivo = turno[0]
+            if clave is None:
+                if (aviso := f"[cola] {motivo}: sigue {cuando:%Y-%m-%d %H:%M}") != dicho:
+                    print(aviso, flush=True)
+                    dicho = aviso
+                _dormir_hasta(min(cuando, _ahora() + timedelta(seconds=REVISAR)))
                 continue
-            # Primero los que no han fallado: tras una pausa, si un enlace nuevo baja bien, la cuenta ya está libre
-            clave = min(pendientes, key=lambda k: e["items"][k]["intentos"])
             url = e["items"][clave]["url"]
+            sitio = reel.sitio(url)
+            entre = ENTRE_OTROS if sitio else ENTRE
             try:
                 video, _ = reel._obtener(url, navegador)
             except BakerError as err:
@@ -237,14 +274,14 @@ def bajar(tope: int = TOPE) -> dict:
                 def fallo(e: dict) -> None:
                     item = e["items"][clave]
                     if tipo == "red":
-                        _pausa(e, RED, "sin red")
+                        _pausa(e, RED, "sin red", sitio)
                         return
                     item["error"] = texto[-300:]
                     if tipo == "bloqueo":
                         item["intentos"] += 1
-                        _pausa(e, random.uniform(*BLOQUEO), "Instagram")
-                    else:  # un enlace roto también fue una petición a Instagram
-                        _pausa(e, random.uniform(*ENTRE), "entre descargas")
+                        _pausa(e, random.uniform(*BLOQUEO), "bloqueo" if sitio else "Instagram", sitio)
+                    else:  # un enlace roto también fue una petición al sitio
+                        _pausa(e, random.uniform(*entre), "entre descargas", sitio)
                     if tipo == "enlace" or item["intentos"] >= STRIKES:
                         item["estado"] = "fallido"
 
@@ -254,11 +291,11 @@ def bajar(tope: int = TOPE) -> dict:
 
             def listo(e: dict) -> None:
                 e["items"][clave].update(estado="bajado", video=str(video), error=None)
-                e["bajados_hoy"] += 1
-                _pausa(e, random.uniform(*ENTRE), "entre descargas")
+                e["bajados_hoy"] += not sitio
+                _pausa(e, random.uniform(*entre), "entre descargas", sitio)
 
             e = _cambiar(listo)
-            print(f"[cola] bajado {clave} ({e['bajados_hoy']} hoy)", flush=True)
+            print(f"[cola] bajado {clave}" + ("" if sitio else f" ({e['bajados_hoy']} hoy)"), flush=True)
 
 
 def reintentar(tipo: str | None = None) -> dict:

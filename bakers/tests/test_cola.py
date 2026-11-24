@@ -86,6 +86,7 @@ def test_parcial_no_cuenta_como_bajado(reloj, tmp_path):
 
 
 def test_bloqueo_pausa_y_enlace_roto_sigue(monkeypatch, reloj, tmp_path):
+    monkeypatch.setattr(cola, "REVISAR", 10**6)  # cada pausa, en un solo sueño
     ahora, dormidas = reloj
     llamadas = _descargas(monkeypatch, tmp_path, {
         "BBB": ["yt-dlp falló (1): ERROR: [Instagram] BBB: HTTP Error 429: Too Many Requests"],
@@ -103,6 +104,7 @@ def test_bloqueo_pausa_y_enlace_roto_sigue(monkeypatch, reloj, tmp_path):
 
 def test_json_vacio_es_bloqueo_y_enlace_roto_espera(monkeypatch, reloj, tmp_path):
     # 2026-10-28: Instagram devolvió páginas vacías y la cola marcó 283 enlaces seguidos sin pausa
+    monkeypatch.setattr(cola, "REVISAR", 10**6)  # cada pausa, en un solo sueño
     _, dormidas = reloj
     llamadas = _descargas(monkeypatch, tmp_path, {
         "AAA": ["yt-dlp falló (1): ERROR: [Instagram] AAA: This content isn't available"],
@@ -175,7 +177,75 @@ def test_otras_fuentes_se_bajan_una_vez(monkeypatch, reloj, tmp_path):
                         [{"fuente": f, "nota": "n.md"} for f in fuentes])
     monkeypatch.setattr(reel, "_obtener", lambda *a: pytest.fail("analizar no debe descargar"))
     assert cola.analizar(str(tmp_path / "notas"))["conteo"] == {"clasificar": 1}  # sin nota de clases, espera
-    assert llamadas == ["123"] and lotes == [[str(tmp_path / "reels" / "123" / "video.mp4")]]
+    assert llamadas == ["tt-123"] and lotes == [[str(tmp_path / "reels" / "tt-123" / "video.mp4")]]
+
+
+def test_codigo_por_sitio():
+    casos = {"https://youtu.be/dQw4w9WgXcQ?si=x": "yt-dQw4w9WgXcQ",
+             "https://www.youtube.com/watch?app=m&v=dQw4w9WgXcQ": "yt-dQw4w9WgXcQ",
+             "https://youtube.com/shorts/dQw4w9WgXcQ": "yt-dQw4w9WgXcQ",
+             "https://www.tiktok.com/@a.b/video/123?lang=es": "tt-123", "https://www.tiktok.com/@a/photo/9": "tt-9",
+             "https://vm.tiktok.com/ZMabc/": "tt-ZMabc", "https://vt.tiktok.com/ZSx/": "tt-ZSx",
+             "https://www.facebook.com/reel/55": "fb-55", "https://m.facebook.com/watch/?v=77": "fb-77",
+             "https://www.facebook.com/pagina/videos/titulo-largo/88/": "fb-88",
+             "https://www.facebook.com/share/r/1AbC/": "fb-1AbC", "https://fb.watch/x-Y_1/": "fb-x-Y_1",
+             "https://www.instagram.com/reel/AAA/": "AAA", "https://www.youtube.com/@canal": None,
+             "https://ejemplo.com/?u=youtu.be/dQw4w9WgXcQ": None, "https://noyoutube.com/shorts/dQw4w9WgXcQ": None,
+             "https://[malo/": None}
+    assert {u: reel.codigo(u) for u in casos} == casos
+
+
+def test_cookies_solo_donde_se_pide_sesion():
+    assert reel._cookies("https://www.instagram.com/reel/AAA/", "firefox") == ["--cookies-from-browser", "firefox"]
+    assert reel._cookies("https://youtu.be/dQw4w9WgXcQ", "firefox") == []
+
+
+def test_mismo_video_con_otro_enlace_es_repetido(reloj, tmp_path):
+    vieja = "https://vt.tiktok.com/ZSx/"
+    cola._guardar({"items": {vieja: {"url": vieja, "estado": "analizado", "intentos": 0}},
+                   "pausa_hasta": None, "motivo": None, "dia": None, "bajados_hoy": 0})
+    r = cola.agregar(_enlaces(tmp_path, "https://youtu.be/dQw4w9WgXcQ", "https://www.youtube.com/watch?v=dQw4w9WgXcQ", vieja))
+    assert (r["agregados"], r["repetidos"]) == (1, 2)
+
+
+def test_cada_sitio_a_su_ritmo(monkeypatch, reloj, tmp_path):
+    """Un bloqueo de Instagram no detiene YouTube, YouTube no gasta el tope de Instagram y baja fuera de horario."""
+    ahora, _ = reloj
+    llamadas = _descargas(monkeypatch, tmp_path, {"AAA": ["yt-dlp falló (1): HTTP Error 429"]})
+    cola.agregar(_enlaces(tmp_path, "https://www.instagram.com/reel/AAA/", "https://youtu.be/dQw4w9WgXcQ",
+                          "https://youtu.be/aaaaaaaaaaa"))
+    empezo = ahora[0]
+    horas = {}
+    original = reel._obtener
+    monkeypatch.setattr(reel, "_obtener", lambda u, n: horas.setdefault(reel.codigo(u), ahora[0]) and original(u, n))
+    assert cola.bajar()["conteo"] == {"bajado": 3}
+    assert llamadas == ["AAA", "yt-dQw4w9WgXcQ", "yt-aaaaaaaaaaa", "AAA"]  # los de YouTube, durante el bloqueo
+    assert timedelta(seconds=60) <= horas["yt-aaaaaaaaaaa"] - horas["yt-dQw4w9WgXcQ"] <= timedelta(seconds=180)
+    assert ahora[0] - empezo >= timedelta(seconds=cola.BLOQUEO[0])  # Instagram sí respetó su pausa
+    assert cola.estado()["bajados_hoy"] == 1  # solo el de Instagram
+    ahora[0] = ahora[0].replace(hour=23, minute=30)
+    cola.agregar(_enlaces(tmp_path, "https://www.tiktok.com/@a/video/7"))
+    inicio = ahora[0]
+    cola.bajar()
+    assert llamadas[-1] == "tt-7" and ahora[0] == inicio
+
+
+def test_enlace_nuevo_de_otro_sitio_no_espera_la_pausa_de_instagram(monkeypatch, reloj, tmp_path):
+    ahora, _ = reloj
+    ahora[0] = ahora[0].replace(hour=23, minute=30)  # Instagram espera hasta mañana
+    llamadas = _descargas(monkeypatch, tmp_path, {})
+    cola.agregar(_enlaces(tmp_path, "https://www.instagram.com/reel/AAA/"))
+    dormir, veces = cola._dormir_hasta, []
+
+    def dormir_y_agregar(t):
+        dormir(t)
+        veces.append(t)
+        if len(veces) == 1:
+            cola.agregar(_enlaces(tmp_path, "https://youtu.be/dQw4w9WgXcQ"))
+
+    monkeypatch.setattr(cola, "_dormir_hasta", dormir_y_agregar)
+    cola.bajar()
+    assert llamadas == ["yt-dQw4w9WgXcQ", "AAA"]
 
 
 def test_video_local_lee_sus_metadatos(tmp_path):
