@@ -1,0 +1,42 @@
+# n8n para aprender automatizaciones (ver README.md). Solo tailnet: escucha en 127.0.0.1 y lo publica
+# `tailscale serve` con HTTPS; nada sale a internet. Va en el Debian del WSL de Pixilate (~/srv/n8n).
+#   docker compose up -d        # con .env junto a este archivo (N8N_HOST y N8N_ENCRYPTION_KEY), modo 600
+name: n8n
+services:
+  n8n:
+    # Versión fija: n8n tuvo varias RCE críticas en 2026. Se sube a propósito, revisando
+    # https://github.com/n8n-io/n8n/security/advisories antes de cambiar el número.
+    image: docker.n8n.io/n8nio/n8n:2.48.7
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5678:5678"  # registrado en 48.SkillShot/PORTS.md; nunca 0.0.0.0
+    environment:
+      N8N_HOST: ${N8N_HOST:?falta N8N_HOST en .env}
+      N8N_PROTOCOL: https
+      N8N_PORT: "5678"
+      N8N_EDITOR_BASE_URL: https://${N8N_HOST}:5678/
+      WEBHOOK_URL: https://${N8N_HOST}:5678/
+      N8N_PROXY_HOPS: "1"  # detrás de tailscale serve: la IP real viene en X-Forwarded-For
+      # Cifra las credenciales guardadas; si se pierde, se pierden ellas. Va también al respaldo.
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?falta N8N_ENCRYPTION_KEY en .env}
+      GENERIC_TIMEZONE: America/Mexico_City
+      TZ: America/Mexico_City
+      # Privacidad: sin telemetría ni encuesta. Avisos de versión sí: son los de seguridad.
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_PERSONALIZATION_ENABLED: "false"
+      N8N_HIRING_BANNER_ENABLED: "false"
+      # Quien entra al editor no corre comandos en el contenedor ni lee sus archivos, ni ve sus variables
+      NODES_EXCLUDE: '["n8n-nodes-base.executeCommand","n8n-nodes-base.localFileTrigger","n8n-nodes-base.readWriteFile"]'
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "true"
+      N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "true"
+      EXECUTIONS_DATA_PRUNE: "true"
+      EXECUTIONS_DATA_MAX_AGE: "336"  # h: dos semanas de historial de ejecuciones
+    volumes:
+      - n8n_data:/home/node/.n8n  # SQLite, ajustes y credenciales cifradas; sin montar nada del host
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    mem_limit: 1g
+    cpus: 2
+volumes:
+  n8n_data:
