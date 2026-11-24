@@ -73,19 +73,36 @@ switch ($Verb) {
             $latido = @"
 `$carpeta = "`$HOME\.bakers\latidos"
 New-Item -ItemType Directory -Force `$carpeta | Out-Null
-`$fin = [DateTimeOffset]::Now.ToString("yyyy-MM-dd'T'HH':'mm':'sszzz", [Globalization.CultureInfo]::InvariantCulture)
-`$l = [ordered]@{ proyecto = '$Proyecto'; proceso = '$Proceso'; unidad = '$Name'; codigo = `$codigo; cada_h = $horas; aviso_falla = `$true; fin = `$fin }
+`$fin = & `$ahora
+# Resumen: el mensaje de la excepción o el último renglón del comando, sin la cola de los errores de PowerShell («+ ...»)
+`$resumen = if (`$fallo) { `$fallo } else { "`$(Get-Content '$log' -Tail 20 -Encoding utf8 | Where-Object { `$_.Trim() -and `$_ -notmatch '^\[bakery\] (inicio|fin) |^\s*\+ ' } | Select-Object -Last 1)" }
+`$resumen = (`$resumen -replace '\s+', ' ').Trim()
+if (`$resumen.Length -gt 200) { `$resumen = `$resumen.Substring(0, 200) }
+`$l = [ordered]@{ proyecto = '$Proyecto'; proceso = '$Proceso'; unidad = '$Name'; codigo = `$codigo; cada_h = $horas; aviso_falla = `$true; inicio = `$inicio; fin = `$fin; resumen = `$resumen }
 [IO.File]::WriteAllText("`$carpeta\.$Proyecto.$Proceso.json.tmp", (`$l | ConvertTo-Json -Compress), [Text.UTF8Encoding]::new(`$false))
 Move-Item -Force "`$carpeta\.$Proyecto.$Proceso.json.tmp" "`$carpeta\$Proyecto.$Proceso.json"
+# Historial: las últimas 1000 corridas (TOPE_CORRIDAS de agente.py). Si falla, el latido ya quedó
+try {
+    `$historial = "`$carpeta\$Proyecto.$Proceso.jsonl"
+    `$corrida = [ordered]@{ inicio = `$inicio; fin = `$fin; codigo = `$codigo; resumen = `$resumen } | ConvertTo-Json -Compress
+    `$previas = @(if (Test-Path `$historial) { [IO.File]::ReadAllLines(`$historial) | Select-Object -Last 999 })
+    [IO.File]::WriteAllText("`$historial.tmp", ((`$previas + `$corrida) -join [char]10) + [char]10, [Text.UTF8Encoding]::new(`$false))
+    Move-Item -Force "`$historial.tmp" `$historial -ErrorAction Stop
+} catch {
+    "[bakery] sin historial: `$_" | Out-File -Append -Encoding utf8 '$log'
+}
 "@
         }
         # El comando va a su propio .ps1 para no pelear con comillas anidadas
         Set-Content "$root\$Name.ps1" -Encoding utf8 -Value @"
 `$env:PYTHONUNBUFFERED = '1'
+`$ahora = { [DateTimeOffset]::Now.ToString("yyyy-MM-dd'T'HH':'mm':'sszzz", [Globalization.CultureInfo]::InvariantCulture) }
+`$inicio = & `$ahora
 Set-Location '$Dir'
 "[bakery] inicio `$(Get-Date -f s)" | Out-File -Encoding utf8 '$log'
 `$global:LASTEXITCODE = 0
 `$codigo = 0
+`$fallo = ''
 try {
     & { $Command } *>&1 | Out-File -Append -Encoding utf8 '$log'
     `$codigo = `$LASTEXITCODE
@@ -93,6 +110,7 @@ try {
     # Un throw del comando corta el script: sin esto el log se quedaba en «inicio» sin decir por qué
     "[bakery] error: `$(`$_ | Out-String)" | Out-File -Append -Encoding utf8 '$log'
     `$codigo = 1
+    `$fallo = `$_.Exception.Message
 }
 "[bakery] fin `$(Get-Date -f s) codigo `$codigo" | Out-File -Append -Encoding utf8 '$log'
 $latido

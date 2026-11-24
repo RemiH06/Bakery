@@ -178,6 +178,34 @@ def test_latidos_y_su_estado(tmp_path):
     assert (mapo["unidad"], mapo["aviso_falla"], mapo["detalle"]) == ("respaldo", False, "cada 1 d · terminó con código 2")
 
 
+def test_historial_de_corridas(tmp_path, monkeypatch):
+    monkeypatch.setattr(agente, "TOPE_CORRIDAS", 3)
+    cfg = agente.Config("fresa", latidos=tmp_path)
+    antes = agente.datetime.fromtimestamp(agente.time.time() - 90)
+    for codigo in range(5):
+        agente.escribir_latido(tmp_path, "mapo", "respaldo", 24, codigo, inicio=antes, resumen="  una\nlínea " + "x" * 300)
+    archivo = tmp_path / "mapo.respaldo.jsonl"
+    assert len(archivo.read_text("utf-8").splitlines()) == 3  # con tope
+    archivo.write_text(archivo.read_text("utf-8") + 'roto\n[]\n{"fin": "ayer", "codigo": 0}\n'
+                       '{"inicio": "2026-11-24T10:00:00-06:00", "fin": "2026-11-24T09:00:00-06:00", "codigo": 0}\n', "utf-8")
+    codigo, d = agente.atender(cfg, "GET", "/api/corridas", {"servicio": ["mapo-respaldo"]})
+    assert codigo == 200 and [c["codigo"] for c in d["corridas"]] == [0, 4, 3, 2]  # la última primero, sin las rotas
+    assert d["corridas"][0]["duracion_s"] is None  # el reloj se ajustó a media corrida
+    assert 89 <= d["corridas"][1]["duracion_s"] <= 92
+    assert d["corridas"][1]["resumen"].startswith("una línea x") and len(d["corridas"][1]["resumen"]) == agente.MAX_RESUMEN
+    assert [l["proceso"] for l in agente.latidos(cfg)] == ["respaldo"]  # el .jsonl no es un latido
+    assert 89 <= agente.latidos(cfg)[0]["duracion_s"] <= 92
+    for nombre, esperado in (("otro", 404), ("../x", 400), ("", 400)):
+        assert agente.atender(cfg, "GET", "/api/corridas", {"servicio": [nombre]})[0] == esperado
+    # Un latido de antes del historial: sin inicio ni .jsonl
+    (tmp_path / "viejo.x.json").write_text('{"proyecto": "viejo", "proceso": "x", "unidad": "x", "codigo": 0, "cada_h": 24, '
+                                           '"fin": "2026-11-24T10:00:00-06:00"}', "utf-8")
+    assert agente.corridas(cfg, "x")["corridas"] == []
+    # Sin poder escribir el historial, el latido queda igual
+    (tmp_path / "doll.sentido.jsonl").mkdir()
+    assert agente.escribir_latido(tmp_path, "doll", "sentido", 24, 0).exists()
+
+
 def test_servicios_agrupados_por_proyecto(tmp_path, monkeypatch):
     monkeypatch.setattr(agente, "WINDOWS", False)
     monkeypatch.setattr(agente, "_servicios_linux", lambda cfg: [
@@ -240,6 +268,15 @@ def test_latido_desde_systemd(tmp_path, monkeypatch):
     monkeypatch.setenv("EXIT_STATUS", "0")
     agente.main(base)
     assert leer() == 0
+    # Con INVOCATION_ID, el inicio sale de systemd, del manager que corre esta misma invocación
+    monkeypatch.setenv("INVOCATION_ID", "abc")
+    monkeypatch.setattr(agente, "_correr", lambda argv, timeout=30: (
+        f"InvocationID={'otra' if '--user' in argv else 'abc'}\nInactiveExitTimestamp=@{100 if '--user' in argv else 1763059600}\n"))
+    agente.main(base)
+    ultima = agente.json.loads((tmp_path / "doll.sentido.jsonl").read_text("utf-8").splitlines()[-1])
+    assert agente.datetime.fromisoformat(ultima["inicio"]).timestamp() == 1763059600
+    resumenes = [agente.json.loads(x)["resumen"] for x in (tmp_path / "doll.sentido.jsonl").read_text("utf-8").splitlines()]
+    assert resumenes == ["exit-code 3", "exit-code SEGV", "", ""]
     monkeypatch.delenv("SERVICE_RESULT")
     with pytest.raises(SystemExit):
         agente.main(base)  # fuera de systemd, sin --codigo

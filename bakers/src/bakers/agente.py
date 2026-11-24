@@ -355,9 +355,12 @@ def _servicios_linux(cfg: Config) -> list[dict]:
 # Un latido es `<proyecto>.<proceso>.json` en LATIDOS, reescrito al final de cada corrida. Linux: `ExecStopPost=`
 # de la unidad (corre también si falla, con SERVICE_RESULT y EXIT_STATUS); Windows: job.ps1 con -Proyecto.
 # Sirve también para lo que el agente no ve por el bus del sistema (unidades de usuario, cron del WSL).
+# Junto a él, `<proyecto>.<proceso>.jsonl` guarda las últimas TOPE_CORRIDAS corridas, una por renglón.
 
 _DURACION = re.compile(r"(\d+(?:\.\d+)?)([mhd])")
 _HORAS = {"m": 1 / 60, "h": 1, "d": 24}
+TOPE_CORRIDAS = 1000  # por proceso (~150 KB): una semana del que corre cada 10 min. El mismo número en job.ps1
+MAX_RESUMEN = 200
 
 
 def horas(texto: str) -> float:
@@ -368,19 +371,64 @@ def horas(texto: str) -> float:
 
 
 def escribir_latido(carpeta: Path, proyecto: str, proceso: str, cada_h: float, codigo: int, unidad: str | None = None,
-                    aviso_falla: bool = True) -> Path:
+                    aviso_falla: bool = True, inicio: datetime | None = None, resumen: str = "") -> Path:
     unidad = unidad or f"{proyecto}-{proceso}"
     for x in (proyecto, proceso, unidad):
         if not NOMBRE.fullmatch(x):
             raise ValueError(f"nombre inválido: {x!r}")
     datos = {"proyecto": proyecto, "proceso": proceso, "unidad": unidad, "codigo": codigo, "cada_h": cada_h,
-             "aviso_falla": aviso_falla, "fin": datetime.now().astimezone().isoformat(timespec="seconds")}
+             "aviso_falla": aviso_falla, "inicio": inicio.astimezone().isoformat(timespec="seconds") if inicio else None,
+             "fin": datetime.now().astimezone().isoformat(timespec="seconds"), "resumen": " ".join(resumen.split())[:MAX_RESUMEN]}
     archivo = carpeta / f"{proyecto}.{proceso}.json"
-    temporal = carpeta / f".{archivo.name}.tmp"
-    temporal.write_text(json.dumps(datos, ensure_ascii=False), "utf-8")
-    os.chmod(temporal, 0o664)  # el UMask=0077 de las unidades lo dejaría ilegible para el agente
-    os.replace(temporal, archivo)  # quien lee nunca ve un latido a medias
+    _reemplazar(archivo, json.dumps(datos, ensure_ascii=False))
+    historial_ = carpeta / f"{archivo.name}l"
+    try:
+        corrida = json.dumps({k: datos[k] for k in ("inicio", "fin", "codigo", "resumen")}, ensure_ascii=False)
+        _reemplazar(historial_, "\n".join([*_renglones(historial_, TOPE_CORRIDAS - 1), corrida]) + "\n")
+    except OSError as e:  # el latido ya quedó: sin historial, el proceso no cuenta como caído
+        print(f"[latido] sin historial: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
     return archivo
+
+
+def _reemplazar(archivo: Path, texto: str) -> None:
+    temporal = archivo.with_name(f".{archivo.name}.tmp")
+    temporal.write_text(texto, "utf-8")
+    os.chmod(temporal, 0o664)  # el UMask=0077 de las unidades lo dejaría ilegible para el agente
+    os.replace(temporal, archivo)  # quien lee nunca ve un archivo a medias
+
+
+def _renglones(archivo: Path, n: int) -> list[str]:
+    try:
+        with archivo.open(encoding="utf-8", errors="replace") as f:
+            return [x.rstrip("\r\n") for x in deque(f, n)]
+    except FileNotFoundError:
+        return []
+
+
+def _duracion_s(inicio: str | None, fin: datetime) -> int | None:
+    """None sin inicio, o si el reloj se ajustó a media corrida (la Pi arranca sin hora)."""
+    s = fin.timestamp() - datetime.fromisoformat(inicio).timestamp() if inicio else -1
+    return round(s) if s >= 0 else None
+
+
+def corridas(cfg: Config, nombre: str, n: int = 100) -> dict:
+    """Las últimas corridas del proceso cuya unidad es `nombre`, la más reciente primero."""
+    if not NOMBRE.fullmatch(nombre):
+        raise AgenteError("nombre de servicio inválido")
+    # El último, como en `servicios` si dos latidos comparten unidad
+    l = next((x for x in reversed(latidos(cfg)) if x["unidad"] == nombre), None)
+    if not l:
+        raise AgenteError(f"{nombre!r} no deja latido en {cfg.nombre}", 404)
+    res = []
+    for x in reversed(_renglones(cfg.latidos / f"{l['archivo']}.jsonl", n)):
+        try:
+            d = json.loads(x)
+            fin = datetime.fromisoformat(d["fin"])
+            res.append({"fin": fin.isoformat(), "duracion_s": _duracion_s(d.get("inicio"), fin), "codigo": int(d["codigo"]),
+                        "resumen": str(d.get("resumen") or "")[:MAX_RESUMEN]})
+        except (ValueError, KeyError, TypeError, AttributeError):  # un renglón roto no tapa a los demás
+            continue
+    return {"servicio": nombre, "proyecto": l["proyecto"], "proceso": l["proceso"], "corridas": res}
 
 
 def _estado_latido(codigo: int, edad_h: float, cada_h: float) -> str:
@@ -397,15 +445,17 @@ def latidos(cfg: Config, ahora: float | None = None) -> list[dict]:
             fin, cada, codigo = datetime.fromisoformat(d["fin"]), float(d["cada_h"]), int(d["codigo"])
             if not all(isinstance(d.get(k), str) and NOMBRE.fullmatch(d[k]) for k in ("proyecto", "proceso", "unidad")):
                 raise ValueError("nombres")
+            duracion = _duracion_s(d.get("inicio"), fin)
         except (OSError, ValueError, KeyError, TypeError) as e:  # uno roto se ve como falla, no desaparece
             res.append({"proyecto": PROYECTO_BASE, "proceso": archivo.stem, "unidad": archivo.stem, "estado": "falló",
                         "detalle": f"latido ilegible: {type(e).__name__}", "fin": None, "codigo": None, "cada_h": None,
-                        "aviso_falla": True})
+                        "aviso_falla": True, "duracion_s": None, "archivo": archivo.stem})
             continue
         estado = _estado_latido(codigo, (ahora - fin.timestamp()) / 3600, cada)
         res.append({"proyecto": d["proyecto"], "proceso": d["proceso"], "unidad": d["unidad"], "estado": estado,
                     "detalle": f"cada {_texto_horas(cada)} · " + ("terminó bien" if not codigo else f"terminó con código {codigo}"),
-                    "fin": fin.isoformat(), "codigo": codigo, "cada_h": cada, "aviso_falla": d.get("aviso_falla") is not False})
+                    "fin": fin.isoformat(), "codigo": codigo, "cada_h": cada, "aviso_falla": d.get("aviso_falla") is not False,
+                    "duracion_s": duracion, "archivo": archivo.stem})
     return res
 
 
@@ -424,13 +474,13 @@ def servicios(cfg: Config) -> list[dict]:
     por_unidad = {l["unidad"]: l for l in latidos(cfg)}
     for s in lista:
         if l := por_unidad.pop(s["nombre"], None):
-            s.update(proyecto=l["proyecto"], proceso=l["proceso"], detalle=l["detalle"], desde=l["fin"])
+            s.update(proyecto=l["proyecto"], proceso=l["proceso"], detalle=l["detalle"], desde=l["fin"], duracion_s=l["duracion_s"])
             if s["estado"] != "activo":
                 s["estado"] = l["estado"]
         else:
             s["proyecto"] = proyecto_de(cfg, s["nombre"])
     lista += [{"nombre": l["unidad"], "proyecto": l["proyecto"], "proceso": l["proceso"], "estado": l["estado"],
-               "detalle": l["detalle"], "desde": l["fin"], "siguiente": None, "controlable": False}
+               "detalle": l["detalle"], "desde": l["fin"], "siguiente": None, "controlable": False, "duracion_s": l["duracion_s"]}
               for l in por_unidad.values()]
     return lista
 
@@ -572,6 +622,8 @@ def atender(cfg: Config, metodo: str, ruta: str, consulta: dict, cuerpo: dict | 
         if metodo == "GET" and ruta == "/api/log":
             nombre = (consulta.get("servicio") or [""])[0]
             return 200, {"servicio": nombre, "renglones": log(cfg, nombre)}
+        if metodo == "GET" and ruta == "/api/corridas":
+            return 200, corridas(cfg, (consulta.get("servicio") or [""])[0])
         if metodo == "POST" and ruta == "/api/accion":
             return 200, accion(cfg, str(cuerpo.get("servicio") or ""), str(cuerpo.get("accion") or ""))
         if metodo == "POST" and ruta == "/api/orden":
@@ -581,7 +633,7 @@ def atender(cfg: Config, metodo: str, ruta: str, consulta: dict, cuerpo: dict | 
     return 404, {"error": "no existe"}
 
 
-RUTAS = ("/api/maquina", "/api/log", "/api/accion", "/api/orden")
+RUTAS = ("/api/maquina", "/api/log", "/api/corridas", "/api/accion", "/api/orden")
 
 
 class _Agente(BaseHTTPRequestHandler):
@@ -646,6 +698,24 @@ class _Agente(BaseHTTPRequestHandler):
             super().log_message(formato, *args)
 
 
+def _inicio_systemd(unidad: str) -> datetime | None:
+    """Cuándo arrancó la corrida de la unidad que nos llama, o None. `systemctl show` responde dentro de la caja de
+    arena (ProtectSystem, SystemCallFilter, AF_UNIX); InactiveExit y no ExecMainStart, que con varios ExecStart es
+    el del último. INVOCATION_ID confirma que es esta corrida y no una unidad homónima del otro manager."""
+    if not (invocacion := os.environ.get("INVOCATION_ID")) or not NOMBRE.fullmatch(unidad):
+        return None
+    for manager in (["--user"], []):
+        try:
+            b = _bloques_systemctl(_correr(["systemctl", *manager, "show", "--timestamp=unix", "-p",
+                                            "InvocationID,InactiveExitTimestamp", f"{unidad}.service"], 10))
+        except AgenteError:
+            continue
+        sello = b[0].get("InactiveExitTimestamp", "") if b and b[0].get("InvocationID") == invocacion else ""
+        if re.fullmatch(r"@\d+", sello):
+            return datetime.fromtimestamp(int(sello[1:]))
+    return None
+
+
 def _latido(argv: list[str]) -> None:
     p = argparse.ArgumentParser(prog="agente.py latido", description="Deja el latido de un proceso al terminar. En una "
                                 "unidad: ExecStopPost=/usr/bin/python3 -I /opt/bakery-agente/agente.py latido PROYECTO PROCESO --cada 1d --unidad %N")
@@ -655,17 +725,23 @@ def _latido(argv: list[str]) -> None:
     p.add_argument("--unidad", help="servicio o tarea al que pertenece (por defecto PROYECTO-PROCESO)")
     p.add_argument("--codigo", type=int, help="código de salida; en systemd sale de SERVICE_RESULT y EXIT_STATUS")
     p.add_argument("--sin-aviso-falla", action="store_true", help="el proyecto ya avisa sus fallas; solo se avisan atrasos")
+    p.add_argument("--inicio", type=int, help="cuándo empezó, como `date +%%s`; en systemd sale de la unidad")
+    p.add_argument("--resumen", default="", help=f"un renglón sobre la corrida (hasta {MAX_RESUMEN} caracteres)")
     p.add_argument("--carpeta", type=Path, default=LATIDOS)
     a = p.parse_args(argv)
-    codigo = a.codigo
+    codigo, resumen = a.codigo, a.resumen
     if codigo is None:
         if (resultado := os.environ.get("SERVICE_RESULT")) is None:
             p.error("fuera de systemd hace falta --codigo")
         salida = os.environ.get("EXIT_STATUS", "")
         codigo = 0 if resultado == "success" else int(salida) if salida.isdigit() and int(salida) else 1
+        if codigo and not resumen:  # el porqué de systemd: timeout, oom-kill, signal...
+            resumen = f"{resultado} {salida}".strip()
     try:
-        print(escribir_latido(a.carpeta, a.proyecto, a.proceso, horas(a.cada), codigo, a.unidad, not a.sin_aviso_falla))
-    except (ValueError, OSError) as e:
+        inicio = datetime.fromtimestamp(a.inicio) if a.inicio else _inicio_systemd(a.unidad or f"{a.proyecto}-{a.proceso}")
+        print(escribir_latido(a.carpeta, a.proyecto, a.proceso, horas(a.cada), codigo, a.unidad, not a.sin_aviso_falla,
+                              inicio, resumen))
+    except (ValueError, OverflowError, OSError) as e:
         p.error(str(e))
 
 

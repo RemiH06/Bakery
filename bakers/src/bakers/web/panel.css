@@ -273,6 +273,12 @@ details summary { cursor: pointer; padding: 6px 0; min-height: 32px; }
 .todas .tarjeta h3 { margin: 0; }
 .log-maquina pre { max-height: 460px; margin: 0; }
 .log-maquina h3 { margin: 0; }
+.corridas { max-height: 460px; overflow: auto; }
+.corridas table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.corridas th { position: sticky; top: 0; text-align: left; font-weight: 600; color: var(--tenue); background: var(--papel); }
+.corridas th, .corridas td { padding: 5px 10px 5px 0; border-bottom: 1px solid var(--borde); vertical-align: top; }
+.corridas td:nth-child(-n + 3) { white-space: nowrap; }
+.corridas td:nth-child(4) { min-width: 12em; font: 12.5px var(--mono); color: var(--tenue); overflow-wrap: anywhere; }
 
 /* ── Teléfono y ventanas angostas: una columna; la nota abierta ocupa la hoja ── */
 @media (max-width: 979px) {

@@ -33,6 +33,14 @@ function resumenDe(ss) {
 const insignia = (s) => el("span", { class: `insignia ${CLASE[s.estado] || ""}` }, s.estado);
 // Un proceso dice cuándo terminó la última vez; un servicio, desde cuándo está en su estado
 const cuando = (s) => s.desde ? el("span", { class: "tenue" }, `${s.proceso ? "última" : "desde"} ${hora(s.desde)}`) : null;
+// Segundos como los diría alguien: «48 s», «3 min 5 s», «1 h 20 min»
+function dura(s) {
+  if (s < 60) return `${s} s`;
+  if (s < 3600) return s % 60 ? `${Math.floor(s / 60)} min ${s % 60} s` : `${s / 60} min`;
+  const m = Math.round(s / 60);
+  return m % 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m / 60} h`;
+}
+const tardo = (s) => s.duracion_s == null ? null : `tardó ${dura(s.duracion_s)}`;
 const motivoDe = (e) => e.name === "TimeoutError" ? "no respondió en 8 s: apagada, dormida o fuera del tailnet" : e.message;
 const SVG = "http://www.w3.org/2000/svg";
 
@@ -75,7 +83,8 @@ function trazo(valores, tope, conRejilla) {
 }
 
 export function crear(raiz, navegar) {
-  let maquinas = null, estado = {}, datos = null, reloj = null, pedido = null, logDe = null;
+  let maquinas = null, estado = {}, datos = null, reloj = null, pedido = null;
+  let logDe = null;  // lo que muestra la tarjeta de al lado: «log:servicio» o «corridas:servicio»
   const menu = el("select", { id: "maquina" });
   const sello = el("span", { class: "tenue", role: "status" });
   const lado = el("div", { class: "recursos", role: "group", "aria-label": "Recursos" });
@@ -194,24 +203,58 @@ export function crear(raiz, navegar) {
     } finally { boton.disabled = false; }
   }
 
-  async function verLog(m, servicio) {
-    logDe = servicio;
-    poner(log, el("div", { class: "fila" }, el("h3", {}, `Log de ${servicio}`),
-      el("button", { type: "button", class: "boton", onclick: () => verLog(m, servicio) }, "Actualizar")),
+  function alLado(clave, texto, otraVez) {
+    logDe = clave;
+    for (const b of lista.querySelectorAll("[data-ver]")) b.setAttribute("aria-pressed", String(b.dataset.ver === clave));
+    poner(log, el("div", { class: "fila" }, el("h3", {}, texto),
+      el("button", { type: "button", class: "boton", onclick: otraVez }, "Actualizar")),
       el("p", { class: "tenue" }, "Cargando…"));
+  }
+
+  async function verCorridas(m, servicio) {
+    const clave = `corridas:${servicio}`;
+    alLado(clave, `Corridas de ${servicio}`, () => verCorridas(m, servicio));
+    try {
+      const d = await pedir(m, `/api/corridas?${new URLSearchParams({ servicio })}`);
+      if (logDe === clave) log.lastChild.replaceWith(tablaCorridas(d.corridas));
+    } catch (e) { if (logDe === clave) log.lastChild.replaceWith(el("p", { class: "error" }, e.message)); }
+  }
+
+  function tablaCorridas(cs) {
+    if (!cs.length) return el("p", { class: "tenue" }, "Todavía no hay corridas guardadas: la siguiente aparece aquí.");
+    const ds = cs.map(c => c.duracion_s).filter(d => d != null).sort((a, b) => a - b);
+    const fallas = cs.filter(c => c.codigo).length, max = ds.at(-1) || 1;
+    const resumen = [cuenta(cs.length, "corrida", "corridas"), fallas ? cuenta(fallas, "falla", "fallas") : "sin fallas",
+      ds.length ? `duración: mediana ${dura(ds[Math.floor((ds.length - 1) / 2)])}, máxima ${dura(ds.at(-1))}` : null];
+    return el("div", { class: "pila" }, el("p", { class: "tenue" }, resumen.filter(Boolean).join(" · ")),
+      el("div", { class: "corridas", tabindex: "0", role: "region", "aria-label": "Últimas corridas" }, el("table", {},
+        el("thead", {}, el("tr", {}, ["Terminó", "Resultado", "Duración", "Resumen"].map(t => el("th", { scope: "col" }, t)))),
+        el("tbody", {}, cs.map(c => {
+          const barra = el("span", {});
+          barra.style.width = `${100 * (c.duracion_s ?? 0) / max}%`;  // por CSSOM: la CSP no deja atributos style
+          return el("tr", {}, el("td", {}, hora(c.fin)),
+            el("td", {}, el("span", { class: `insignia ${CLASE[c.codigo ? "falló" : "bien"]}` }, c.codigo ? `código ${c.codigo}` : "bien")),
+            el("td", {}, c.duracion_s == null ? "—" : [dura(c.duracion_s), el("span", { class: "medidor", "aria-hidden": "true" }, barra)]),
+            el("td", {}, c.resumen));
+        })))));
+  }
+
+  async function verLog(m, servicio) {
+    const clave = `log:${servicio}`;
+    alLado(clave, `Log de ${servicio}`, () => verLog(m, servicio));
     try {
       const d = await pedir(m, `/api/log?${new URLSearchParams({ servicio })}`);
-      if (logDe !== servicio) return;
+      if (logDe !== clave) return;
       const pre = el("pre", { tabindex: "0" }, d.renglones.length ? d.renglones.join("\n") : "(vacío)");
       log.lastChild.replaceWith(pre);
       pre.scrollTop = pre.scrollHeight;  // lo último, abajo, como en una terminal
-    } catch (e) { log.lastChild.replaceWith(el("p", { class: "error" }, e.message)); }
+    } catch (e) { if (logDe === clave) log.lastChild.replaceWith(el("p", { class: "error" }, e.message)); }
   }
 
   function pintarServicios(m, d) {
     const fila = (s) => el("li", {},
       el("div", { class: "fila" }, insignia(s), el("b", {}, s.nombre), cuando(s)),
-      el("span", { class: "tenue" }, [s.detalle, s.siguiente ? `siguiente: ${hora(s.siguiente)}` : null].filter(Boolean).join(" · ")),
+      el("span", { class: "tenue" }, [s.detalle, tardo(s), s.siguiente ? `siguiente: ${hora(s.siguiente)}` : null].filter(Boolean).join(" · ")),
       el("div", { class: "fila" },
         ...(s.controlable ? Object.entries(VERBO).filter(([v]) => (v === "iniciar") !== (s.estado === "activo")).map(([v, texto]) => {
           const b = el("button", { type: "button", class: "boton", "aria-label": `${texto} ${s.nombre}` }, texto);
@@ -219,7 +262,11 @@ export function crear(raiz, navegar) {
             v === "iniciar" ? null : `¿${texto} ${s.nombre} en ${m.nombre}?`, b));
           return b;
         }) : []),
-        el("button", { type: "button", class: "boton", "aria-pressed": String(logDe === s.nombre), "aria-label": `Log de ${s.nombre}`,
+        s.proceso ? el("button", { type: "button", class: "boton", "data-ver": `corridas:${s.nombre}`,
+          "aria-pressed": String(logDe === `corridas:${s.nombre}`), "aria-label": `Corridas de ${s.nombre}`,
+          onclick: () => verCorridas(m, s.nombre) }, "Corridas") : null,
+        el("button", { type: "button", class: "boton", "data-ver": `log:${s.nombre}`,
+          "aria-pressed": String(logDe === `log:${s.nombre}`), "aria-label": `Log de ${s.nombre}`,
           onclick: () => verLog(m, s.nombre) }, "Log")));
     const grupos = porProyecto(d.servicios).map(([p, ss]) => el("section", { class: "proyecto", "aria-label": `Proyecto ${p}` },
       el("h4", {}, p, el("span", { class: "tenue" }, ` · ${resumenDe(ss)}`)), el("ul", { class: "items" }, ss.map(fila))));
@@ -245,7 +292,7 @@ export function crear(raiz, navegar) {
             malos ? el("span", { class: "insignia e-fallido" }, cuenta(malos, "pide atención", "piden atención")) : null),
           el("ul", { class: "items" }, ss.map(s => el("li", {},
             el("div", { class: "fila" }, insignia(s), el("b", {}, s.proceso || s.nombre), cuando(s)),
-            el("span", { class: "tenue" }, [s.proceso ? s.nombre : null, s.detalle].filter(Boolean).join(" · "))))));
+            el("span", { class: "tenue" }, [s.proceso ? s.nombre : null, s.detalle, tardo(s)].filter(Boolean).join(" · "))))));
       }) : null)));
   }
 
