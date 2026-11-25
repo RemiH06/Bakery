@@ -281,18 +281,18 @@ details summary { cursor: pointer; padding: 6px 0; min-height: 32px; }
 .flecha.mal { stroke: var(--fallido); } .flecha.viva { stroke: var(--acento2); stroke-width: 2.5; }
 .flecha.cortada { stroke-dasharray: 6 5; }
 .punta { fill: var(--ceniza); } .punta-mal { fill: var(--fallido); } .punta-viva { fill: var(--acento2); }
-.ficha { position: absolute; width: 190px; height: 70px; padding: 6px 10px; display: grid; align-content: center; text-align: left;
+.nodo-grafo { position: absolute; width: 190px; height: 70px; padding: 6px 10px; display: grid; align-content: center; text-align: left;
   color: var(--texto); background: var(--papel); border: 1px solid var(--borde2); border-radius: var(--radio); cursor: grab; touch-action: none; user-select: none; }
-.ficha > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.ficha .bajo { font: 12px var(--sans); color: var(--tenue); }
-.ficha b { font: 600 14px/1.35 var(--sans); }
-.ficha .estado { font: 500 12px var(--mono); }
-.ficha:hover { border-color: var(--acento2); }
-.ficha.con-mal { border-color: var(--fallido); }
-.ficha.hueca { border-style: dashed; background: var(--bg2); }
-.ficha[aria-pressed="true"] { border-color: var(--acento2); box-shadow: inset 0 0 0 1px var(--acento2); }
-.ficha:focus-visible, .ficha.en-mano { z-index: 2; }
-.ficha.en-mano { cursor: grabbing; box-shadow: 0 8px 20px color-mix(in srgb, var(--bg) 80%, transparent); }
+.nodo-grafo > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.nodo-grafo .bajo { font: 12px var(--sans); color: var(--tenue); }
+.nodo-grafo b { font: 600 14px/1.35 var(--sans); }
+.nodo-grafo .estado { font: 500 12px var(--mono); }
+.nodo-grafo:hover { border-color: var(--acento2); }
+.nodo-grafo.con-mal { border-color: var(--fallido); }
+.nodo-grafo.hueca { border-style: dashed; background: var(--bg2); }
+.nodo-grafo[aria-pressed="true"] { border-color: var(--acento2); box-shadow: inset 0 0 0 1px var(--acento2); }
+.nodo-grafo:focus-visible, .nodo-grafo.en-mano { z-index: 2; }
+.nodo-grafo.en-mano { cursor: grabbing; box-shadow: 0 8px 20px color-mix(in srgb, var(--bg) 80%, transparent); }
 .detalle-ficha { display: grid; gap: 8px; }
 .detalle-ficha h3 { margin: 0; } .detalle-ficha p { margin: 0; overflow-wrap: anywhere; }
 .log-maquina pre { max-height: 460px; margin: 0; }

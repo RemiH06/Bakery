@@ -5,7 +5,7 @@
 import { el, svg } from "./util.js";
 
 const CLAVE = "bakery.grafo";
-const ANCHO = 190, ALTO = 70;   // los de `.ficha` en panel.css
+const ANCHO = 190, ALTO = 70;   // los de `.nodo-grafo` en panel.css
 const PASO_X = 250, PASO_Y = 94, MARGEN = 16;
 const REJILLA = 8;              // al soltar, la ficha cae en múltiplos de esto
 const UMBRAL = 4;               // px: menos que esto es un clic con el pulso movido, no un arrastre
@@ -141,7 +141,7 @@ export function crear(alElegir) {
   }
 
   function ficha(clave) {
-    const b = el("button", { type: "button", class: "ficha", "aria-pressed": "false" });
+    const b = el("button", { type: "button", class: "nodo-grafo", "aria-pressed": "false" });
     let huboArrastre = false;
     b.addEventListener("click", () => { if (!huboArrastre) elegir(clave); huboArrastre = false; });
     b.addEventListener("pointerdown", (ev) => {
