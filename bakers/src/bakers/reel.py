@@ -83,6 +83,31 @@ def codigo(fuente: str) -> str | None:
     return m[1] if m else None
 
 
+_CORTO = re.compile(r"v[mt]\.tiktok\.com/\w|tiktok\.com/t/\w|facebook\.com/share/|fb\.watch/")
+
+
+def desacortar(fuente: str, espera: float = 4.0) -> str:
+    """El enlace largo de uno corto de TikTok o Facebook, para reconocerlo como repetido (TikTok da un corto distinto
+    cada vez que se comparte), sin los parámetros que dicen quién lo compartió. Solo lee la cabecera Location y nunca
+    sale del sitio: es una dirección ajena. Si algo falla, el mismo enlace."""
+    origen = sitio(fuente)
+    if not origen or not _CORTO.search(fuente):
+        return fuente
+    url = fuente
+    try:
+        for _ in range(3):
+            with httpx.stream("GET", url, timeout=espera) as r:  # sin seguir: cada salto se revisa
+                url = str(r.url.join(r.headers["location"]))
+            if not url.startswith("https://") or sitio(url) != origen:
+                return fuente
+            if codigo(url) and not _CORTO.search(url):
+                partes = urlsplit(url)
+                return url if re.search(r"[?&]v=", url) else f"https://{partes.netloc}{partes.path}"
+    except (httpx.HTTPError, httpx.InvalidURL, KeyError, ValueError):
+        pass
+    return fuente
+
+
 def _cookies(fuente: str, navegador: str) -> list[str]:
     """Instagram pide sesión: se lee del navegador al momento, nunca se copia a disco. A los de SITIOS no se les
     manda: sus videos públicos no la piden y descargar con ella arriesga la cuenta."""

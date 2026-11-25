@@ -1,8 +1,10 @@
 import time
+from contextlib import nullcontext
 from datetime import datetime, timedelta, timezone
 from itertools import chain, repeat
 from pathlib import Path
 
+import httpx
 import pytest
 
 from bakers import cola, core, reel
@@ -22,6 +24,7 @@ def reloj(monkeypatch, tmp_path):
     monkeypatch.setattr(reel, "CARPETA", tmp_path / "reels")
     monkeypatch.setattr(cola, "_ahora", lambda: ahora[0])
     monkeypatch.setattr(cola, "_libre_gb", lambda: 100.0)
+    _redirige(monkeypatch, {})  # ninguna prueba sale a la red
 
     def dormir(t):
         dormidas.append((t - ahora[0]).total_seconds())
@@ -206,6 +209,45 @@ def test_mismo_video_con_otro_enlace_es_repetido(reloj, tmp_path):
                    "pausa_hasta": None, "motivo": None, "dia": None, "bajados_hoy": 0})
     r = cola.agregar(_enlaces(tmp_path, "https://youtu.be/dQw4w9WgXcQ", "https://www.youtube.com/watch?v=dQw4w9WgXcQ", vieja))
     assert (r["agregados"], r["repetidos"]) == (1, 2)
+
+
+def _redirige(monkeypatch, saltos: dict):
+    """httpx.stream de mentira: cada URL responde con su Location (None: sin red)."""
+    def stream(metodo, url, **_):
+        if saltos.get(url) is None:
+            raise httpx.ConnectError("sin red")
+        return nullcontext(httpx.Response(302, headers={"location": saltos[url]}, request=httpx.Request(metodo, url)))
+    monkeypatch.setattr(reel.httpx, "stream", stream)
+
+
+def test_desacortar_solo_dentro_del_mismo_sitio(monkeypatch):
+    tt, fb, malo = "https://vt.tiktok.com/ZSx/", "https://www.facebook.com/share/r/1AbC/", "https://vm.tiktok.com/ZMm/"
+    _redirige(monkeypatch, {tt: "https://www.tiktok.com/@a/photo/9?_r=1&sec_user_id=quien",
+                            fb: "/reel/55/?rdid=x", malo: "https://127.0.0.1:8090/video/1"})
+    assert reel.desacortar(tt) == "https://www.tiktok.com/@a/photo/9"
+    assert reel.desacortar(fb) == "https://www.facebook.com/reel/55/"
+    assert reel.desacortar(malo) == malo
+    assert reel.desacortar("https://fb.watch/caido/") == "https://fb.watch/caido/"
+    assert reel.desacortar("https://youtu.be/dQw4w9WgXcQ") == "https://youtu.be/dQw4w9WgXcQ"
+
+
+def test_dos_cortos_del_mismo_video_son_repetidos(monkeypatch, reloj, tmp_path):
+    a, b, largo = "https://vm.tiktok.com/ZMa/", "https://vm.tiktok.com/ZMb/", "https://www.tiktok.com/@x/video/7"
+    _redirige(monkeypatch, {a: largo, b: largo})
+    r = cola.agregar_texto("\n".join([f"gatos: {a}", b, largo]))
+    assert (r["agregados"], r["repetidos"]) == (1, 2)
+    i = cola._leer()["items"]["tt-7"]
+    assert (i["url"], i["etiqueta"]) == (largo, "gatos")
+    _redirige(monkeypatch, {})  # al reenviarlo no hubo red
+    assert cola.agregar_texto(a)["repetidos"] == 1
+
+
+def test_corto_que_ya_estaba_por_su_codigo_es_repetido(monkeypatch, reloj, tmp_path):
+    a = "https://vt.tiktok.com/ZSx/"
+    _redirige(monkeypatch, {})
+    assert cola.agregar_texto(a)["agregados"] == 1  # sin red entra como corto
+    _redirige(monkeypatch, {a: "https://www.tiktok.com/@x/video/7"})
+    assert cola.agregar_texto(a)["repetidos"] == 1
 
 
 def test_cada_sitio_a_su_ritmo(monkeypatch, reloj, tmp_path):

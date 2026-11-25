@@ -34,6 +34,7 @@ ENTRE = (300, 900)        # segundos entre descargas: repartidas en el día, no 
 BLOQUEO = (7200, 10800)   # segundos tras un error de Instagram
 ENTRE_OTROS = (60, 180)   # segundos entre descargas de un mismo sitio sin sesión: no hay cuenta que cuidar, sí la IP
 REVISAR = 300             # segundos a lo más dormido: un enlace de otro sitio no espera la pausa de Instagram
+DESACORTAR = 8            # segundos en total para resolver los enlaces cortos de un texto
 RED = 300                 # sin red (p. ej. al despertar de la suspensión): reintenta sin contar
 STRIKES = 3               # un enlace que da "bloqueo" 3 veces es privado o borrado, no la cuenta
 LOTE = 1                  # reels por llamada a `reel.reel` en `analizar`: con uno, un juego espera a lo más un reel
@@ -156,9 +157,15 @@ def agregar(archivo: str) -> dict:
 def agregar_texto(texto: str, seccion: str | None = None) -> dict:
     """Lo mismo que `agregar`, con el texto pegado (el panel). `seccion` vale hasta el primer encabezado."""
     cuenta = {"agregados": 0, "repetidos": 0, "ya_bajados": 0, "sin_enlace": 0}
+    # Fuera del candado, porque sale a la red; pegar muchos cortos no detiene el panel más de unos segundos
+    limite, largos = time.monotonic() + DESACORTAR, {}
+    for u in re.findall(r"https?://\S+", texto):
+        if u not in largos and time.monotonic() < limite:
+            largos[u] = reel.desacortar(u)
 
     def fn(e: dict) -> None:
         nonlocal seccion
+        cortos = {i["corto"] for i in e["items"].values() if i.get("corto")}
         for linea in texto.splitlines():
             if linea.startswith("#"):
                 seccion = linea.strip("# ").strip() or None
@@ -167,18 +174,24 @@ def agregar_texto(texto: str, seccion: str | None = None) -> dict:
             if not m:
                 cuenta["sin_enlace"] += bool(linea.strip())
                 continue
-            cod = reel.codigo(m[0])
+            largo = largos.get(m[0], m[0])
+            cod = reel.codigo(largo)
             # Sin el ?stkn=... de rastreo; el tipo (reel o post) se conserva porque yt-dlp los trata distinto
-            url = (f"https://www.instagram.com/{'p' if '/p/' in m[0] else 'reel'}/{cod}/"
-                   if cod and not reel.sitio(m[0]) else m[0])
+            url = (f"https://www.instagram.com/{'p' if '/p/' in largo else 'reel'}/{cod}/"
+                   if cod and not reel.sitio(largo) else largo)
             clave = cod or url
-            if clave in e["items"] or m[0] in e["items"]:  # antes, los de otros sitios iban por su URL completa
+            corto = reel.codigo(m[0]) if largo != m[0] else None
+            # Antes, los de otros sitios iban por su URL completa y los cortos por su propio código
+            if cortos & {clave, corto} or any(x in e["items"] for x in (clave, m[0], corto)):
                 cuenta["repetidos"] += 1
             elif cod and reel.bajado(cod):
                 cuenta["ya_bajados"] += 1
             else:
                 e["items"][clave] = {"url": url, "etiqueta": linea[:m.start()].strip(" :-") or None,
                                      "seccion": seccion, "estado": "pendiente", "intentos": 0}
+                if corto:
+                    e["items"][clave]["corto"] = corto  # si al reenviarlo no se resuelve, sigue siendo repetido
+                    cortos.add(corto)
                 cuenta["agregados"] += 1
 
     e = _cambiar(fn)
