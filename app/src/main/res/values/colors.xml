@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- La paleta de bakers/src/bakers/web/panel.css -->
+<resources>
+    <color name="bg">#140A0E</color>
+    <color name="hoja">#26151D</color>
+    <color name="papel">#301B25</color>
+    <color name="borde">#6A4152</color>
+    <color name="texto">#F6DDE5</color>
+    <color name="tenue">#C79DAC</color>
+    <color name="acento">#F27BA6</color>
+    <color name="durazno">#F8B79A</color>
+    <color name="fallido">#FF8A6E</color>
+    <color name="corteza">#C98B4A</color>
+    <color name="reja">#E3B47C</color>
+</resources>

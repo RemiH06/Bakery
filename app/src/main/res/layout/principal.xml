@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="match_parent" android:fitsSystemWindows="true">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="20dp">
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical">
+            <ImageView android:layout_width="44dp" android:layout_height="44dp" android:src="@drawable/pay" android:importantForAccessibility="no" />
+            <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="14dp" android:orientation="vertical">
+                <TextView style="@style/Titulo" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/app" android:accessibilityHeading="true" android:textSize="28sp" />
+                <TextView style="@style/Rotulo" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/lema" />
+            </LinearLayout>
+        </LinearLayout>
+        <TextView style="@style/Titulo" android:id="@+id/titulo_cola" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/por_mandar" android:accessibilityHeading="true" android:layout_marginTop="32dp" />
+        <TextView style="@style/Rotulo" android:id="@+id/nada" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/nada" android:layout_marginTop="8dp" />
+        <LinearLayout android:id="@+id/lista" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" />
+        <Button style="@style/Boton" android:id="@+id/mandar_todo" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/mandar_todo" android:layout_marginTop="12dp" />
+        <TextView style="@style/Titulo" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/ajustes" android:accessibilityHeading="true" android:layout_marginTop="32dp" />
+        <TextView style="@style/Rotulo" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/direccion" android:labelFor="@id/direccion" android:layout_marginTop="8dp" android:layout_marginBottom="4dp" />
+        <EditText android:id="@+id/direccion" android:layout_width="match_parent" android:layout_height="wrap_content" android:importantForAutofill="no" android:inputType="textUri" android:imeOptions="actionDone" />
+        <TextView style="@style/Rotulo" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/direccion_ayuda" android:layout_marginTop="4dp" />
+        <Button style="@style/Boton" android:id="@+id/probar" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/probar" android:layout_marginTop="12dp" />
+        <TextView android:id="@+id/resultado" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:textColor="@color/texto" android:textSize="16sp" android:accessibilityLiveRegion="polite" />
+    </LinearLayout>
+</ScrollView>

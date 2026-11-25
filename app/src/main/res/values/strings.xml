@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app">Bakery</string>
+    <string name="lema">Pi caliente de frutas todos los días, a todas horas</string>
+    <string name="con_nota">Bakery con nota</string>
+    <string name="con_nota_corto">Con nota</string>
+    <string name="por_mandar">Por mandar</string>
+    <string name="nada">Nada pendiente: todo llegó a la cola.</string>
+    <string name="mandar_todo">Mandar ahora</string>
+    <string name="reintentar">Reintentar</string>
+    <string name="borrar">Borrar</string>
+    <string name="cancelar">Cancelar</string>
+    <string name="borrar_pregunta">¿Borrar este enlace sin mandarlo?</string>
+    <string name="ajustes">Ajustes</string>
+    <string name="direccion">Dirección del panel</string>
+    <string name="direccion_ayuda">La del tailnet, por ejemplo https://maquina.tailnet.ts.net:8093. Solo se guarda en este teléfono.</string>
+    <string name="probar">Guardar y probar conexión</string>
+    <string name="probando">Probando…</string>
+    <string name="direccion_mala">Tiene que ser https y terminar en .ts.net, sin nada después del puerto.</string>
+    <string name="enlace">Enlace</string>
+    <string name="etiqueta">Etiqueta (pista para clasificar)</string>
+    <string name="seccion">Sección</string>
+    <string name="mandar">Mandar</string>
+</resources>

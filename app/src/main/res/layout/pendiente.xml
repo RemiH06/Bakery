@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:background="@drawable/caja" android:orientation="vertical" android:paddingHorizontal="16dp" android:paddingTop="12dp">
+    <TextView android:id="@+id/enlace" android:layout_width="match_parent" android:layout_height="wrap_content" android:ellipsize="end" android:maxLines="2" android:textColor="@color/texto" android:textSize="16sp" />
+    <TextView style="@style/Rotulo" android:id="@+id/nota" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="2dp" />
+    <TextView android:id="@+id/motivo" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:textColor="@color/fallido" android:textSize="14sp" />
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content">
+        <Button style="@style/BotonTexto" android:id="@+id/reintentar" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/reintentar" android:layout_marginStart="-12dp" />
+        <Button style="@style/BotonTexto" android:id="@+id/borrar" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/borrar" />
+    </LinearLayout>
+</LinearLayout>

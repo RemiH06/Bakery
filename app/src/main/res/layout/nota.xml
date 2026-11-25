@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="wrap_content">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="20dp">
+        <TextView style="@style/Titulo" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/con_nota" android:accessibilityHeading="true" />
+        <TextView style="@style/Rotulo" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/enlace" android:labelFor="@id/enlace" android:layout_marginTop="12dp" android:layout_marginBottom="4dp" />
+        <EditText android:id="@+id/enlace" android:layout_width="match_parent" android:layout_height="wrap_content" android:importantForAutofill="no" android:inputType="textUri" android:maxLines="1" />
+        <TextView style="@style/Rotulo" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/etiqueta" android:labelFor="@id/etiqueta" android:layout_marginTop="12dp" android:layout_marginBottom="4dp" />
+        <EditText android:id="@+id/etiqueta" android:layout_width="match_parent" android:layout_height="wrap_content" android:importantForAutofill="no" android:inputType="textCapSentences" android:maxLength="300" android:imeOptions="actionNext" />
+        <TextView style="@style/Rotulo" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/seccion" android:labelFor="@id/seccion" android:layout_marginTop="12dp" android:layout_marginBottom="4dp" />
+        <EditText android:id="@+id/seccion" android:layout_width="match_parent" android:layout_height="wrap_content" android:importantForAutofill="no" android:inputType="textCapSentences" android:maxLength="100" android:imeOptions="actionDone" />
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="16dp" android:gravity="end">
+            <Button style="@style/BotonTexto" android:id="@+id/cancelar" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/cancelar" />
+            <Button style="@style/Boton" android:id="@+id/mandar" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/mandar" android:layout_marginStart="8dp" />
+        </LinearLayout>
+    </LinearLayout>
+</ScrollView>
