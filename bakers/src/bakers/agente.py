@@ -55,6 +55,7 @@ from urllib.parse import parse_qs, urlencode, urlsplit
 PUERTO = 8094  # registrado en 48.SkillShot/PORTS.md
 WINDOWS = os.name == "nt"
 NOMBRE = re.compile(r"[\w.-]{1,64}", re.ASCII)  # sin comillas ni espacios: nunca rompe un comando
+ID = re.compile(r"[\w.-]{1,64}\.[\w.-]{1,64}", re.ASCII)  # `proyecto.proceso` (o `proyecto.servicio`) de otro
 VERBOS = {"iniciar": "start", "detener": "stop", "reiniciar": "restart"}
 RENGLONES = 60
 MAX_CUERPO = 4096
@@ -355,12 +356,14 @@ def _servicios_linux(cfg: Config) -> list[dict]:
 # Un latido es `<proyecto>.<proceso>.json` en LATIDOS, reescrito al final de cada corrida. Linux: `ExecStopPost=`
 # de la unidad (corre también si falla, con SERVICE_RESULT y EXIT_STATUS); Windows: job.ps1 con -Proyecto.
 # Sirve también para lo que el agente no ve por el bus del sistema (unidades de usuario, cron del WSL).
+# `usa` lista de qué otros procesos o servicios depende (`proyecto.proceso`): son las flechas del grafo del panel.
 # Junto a él, `<proyecto>.<proceso>.jsonl` guarda las últimas TOPE_CORRIDAS corridas, una por renglón.
 
 _DURACION = re.compile(r"(\d+(?:\.\d+)?)([mhd])")
 _HORAS = {"m": 1 / 60, "h": 1, "d": 24}
 TOPE_CORRIDAS = 1000  # por proceso (~150 KB): una semana del que corre cada 10 min. El mismo número en job.ps1
 MAX_RESUMEN = 200
+MAX_USA = 16
 
 
 def horas(texto: str) -> float:
@@ -371,14 +374,17 @@ def horas(texto: str) -> float:
 
 
 def escribir_latido(carpeta: Path, proyecto: str, proceso: str, cada_h: float, codigo: int, unidad: str | None = None,
-                    aviso_falla: bool = True, inicio: datetime | None = None, resumen: str = "") -> Path:
+                    aviso_falla: bool = True, inicio: datetime | None = None, resumen: str = "", usa: tuple[str, ...] = ()) -> Path:
     unidad = unidad or f"{proyecto}-{proceso}"
     for x in (proyecto, proceso, unidad):
         if not NOMBRE.fullmatch(x):
             raise ValueError(f"nombre inválido: {x!r}")
+    if len(usa) > MAX_USA or not all(ID.fullmatch(x) for x in usa):
+        raise ValueError(f"`usa` inválido: hasta {MAX_USA}, cada uno como proyecto.proceso")
     datos = {"proyecto": proyecto, "proceso": proceso, "unidad": unidad, "codigo": codigo, "cada_h": cada_h,
              "aviso_falla": aviso_falla, "inicio": inicio.astimezone().isoformat(timespec="seconds") if inicio else None,
-             "fin": datetime.now().astimezone().isoformat(timespec="seconds"), "resumen": " ".join(resumen.split())[:MAX_RESUMEN]}
+             "fin": datetime.now().astimezone().isoformat(timespec="seconds"), "resumen": " ".join(resumen.split())[:MAX_RESUMEN],
+             "usa": list(usa)}
     archivo = carpeta / f"{proyecto}.{proceso}.json"
     _reemplazar(archivo, json.dumps(datos, ensure_ascii=False))
     historial_ = carpeta / f"{archivo.name}l"
@@ -449,14 +455,19 @@ def latidos(cfg: Config, ahora: float | None = None) -> list[dict]:
         except (OSError, ValueError, KeyError, TypeError) as e:  # uno roto se ve como falla, no desaparece
             res.append({"proyecto": PROYECTO_BASE, "proceso": archivo.stem, "unidad": archivo.stem, "estado": "falló",
                         "detalle": f"latido ilegible: {type(e).__name__}", "fin": None, "codigo": None, "cada_h": None,
-                        "aviso_falla": True, "duracion_s": None, "archivo": archivo.stem})
+                        "aviso_falla": True, "duracion_s": None, "archivo": archivo.stem, "usa": []})
             continue
         estado = _estado_latido(codigo, (ahora - fin.timestamp()) / 3600, cada)
         res.append({"proyecto": d["proyecto"], "proceso": d["proceso"], "unidad": d["unidad"], "estado": estado,
                     "detalle": f"cada {_texto_horas(cada)} · " + ("terminó bien" if not codigo else f"terminó con código {codigo}"),
                     "fin": fin.isoformat(), "codigo": codigo, "cada_h": cada, "aviso_falla": d.get("aviso_falla") is not False,
-                    "duracion_s": duracion, "archivo": archivo.stem})
+                    "duracion_s": duracion, "archivo": archivo.stem, "usa": _usa(d.get("usa"))})
     return res
+
+
+def _usa(crudo: object) -> list[str]:
+    """Lo declarado que tenga forma de identificador: una flecha mal escrita se pierde, no tumba el latido."""
+    return [x for x in crudo if isinstance(x, str) and ID.fullmatch(x)][:MAX_USA] if isinstance(crudo, list) else []
 
 
 def _texto_horas(h: float) -> str:
@@ -474,13 +485,15 @@ def servicios(cfg: Config) -> list[dict]:
     por_unidad = {l["unidad"]: l for l in latidos(cfg)}
     for s in lista:
         if l := por_unidad.pop(s["nombre"], None):
-            s.update(proyecto=l["proyecto"], proceso=l["proceso"], detalle=l["detalle"], desde=l["fin"], duracion_s=l["duracion_s"])
+            s.update(proyecto=l["proyecto"], proceso=l["proceso"], detalle=l["detalle"], desde=l["fin"], duracion_s=l["duracion_s"],
+                     usa=l["usa"])
             if s["estado"] != "activo":
                 s["estado"] = l["estado"]
         else:
             s["proyecto"] = proyecto_de(cfg, s["nombre"])
     lista += [{"nombre": l["unidad"], "proyecto": l["proyecto"], "proceso": l["proceso"], "estado": l["estado"],
-               "detalle": l["detalle"], "desde": l["fin"], "siguiente": None, "controlable": False, "duracion_s": l["duracion_s"]}
+               "detalle": l["detalle"], "desde": l["fin"], "siguiente": None, "controlable": False, "duracion_s": l["duracion_s"],
+               "usa": l["usa"]}
               for l in por_unidad.values()]
     return lista
 
@@ -727,6 +740,8 @@ def _latido(argv: list[str]) -> None:
     p.add_argument("--sin-aviso-falla", action="store_true", help="el proyecto ya avisa sus fallas; solo se avisan atrasos")
     p.add_argument("--inicio", type=int, help="cuándo empezó, como `date +%%s`; en systemd sale de la unidad")
     p.add_argument("--resumen", default="", help=f"un renglón sobre la corrida (hasta {MAX_RESUMEN} caracteres)")
+    p.add_argument("--usa", action="append", default=[], metavar="PROYECTO.PROCESO",
+                   help="de qué otro proceso o servicio depende (se repite); es una flecha en el grafo del panel")
     p.add_argument("--carpeta", type=Path, default=LATIDOS)
     a = p.parse_args(argv)
     codigo, resumen = a.codigo, a.resumen
@@ -740,7 +755,7 @@ def _latido(argv: list[str]) -> None:
     try:
         inicio = datetime.fromtimestamp(a.inicio) if a.inicio else _inicio_systemd(a.unidad or f"{a.proyecto}-{a.proceso}")
         print(escribir_latido(a.carpeta, a.proyecto, a.proceso, horas(a.cada), codigo, a.unidad, not a.sin_aviso_falla,
-                              inicio, resumen))
+                              inicio, resumen, tuple(a.usa)))
     except (ValueError, OverflowError, OSError) as e:
         p.error(str(e))
 

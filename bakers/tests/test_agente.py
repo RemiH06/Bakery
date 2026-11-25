@@ -221,6 +221,28 @@ def test_servicios_agrupados_por_proyecto(tmp_path, monkeypatch):
     assert s["tabularium-diario"]["controlable"] is False
 
 
+def test_de_que_depende_cada_proceso(tmp_path, monkeypatch):
+    monkeypatch.setattr(agente, "WINDOWS", False)
+    monkeypatch.setattr(agente, "_servicios_linux", lambda cfg: [
+        {"nombre": "analizar", "estado": "detenido", "detalle": "", "desde": None, "siguiente": None, "controlable": True}])
+    base = ["--cada", "1d", "--codigo", "0", "--carpeta", str(tmp_path)]
+    agente.main(["latido", "bakery", "analizar", *base, "--unidad", "analizar", "--usa", "bakery.cola", "--usa", "bakery.bakers"])
+    agente.main(["latido", "mapo", "respaldo", *base])
+    s = {x["nombre"]: x["usa"] for x in agente.servicios(agente.Config("fresa", latidos=tmp_path))}
+    assert s == {"analizar": ["bakery.cola", "bakery.bakers"], "mapo-respaldo": []}
+    for malo in ("cola", "bakery.", "bakery.co la", "../x"):
+        with pytest.raises(SystemExit):
+            agente.main(["latido", "bakery", "analizar", *base, "--usa", malo])
+    with pytest.raises(ValueError):
+        agente.escribir_latido(tmp_path, "a", "b", 1, 0, usa=("a.b",) * (agente.MAX_USA + 1))
+    # Escrito por otro (job.ps1, a mano): lo que no es un identificador se pierde y el latido sigue bien
+    archivo = tmp_path / "mapo.respaldo.json"
+    for crudo, esperado in ((["bakery.cola", 3, "x y"], ["bakery.cola"]), ("bakery.cola", []), (None, [])):
+        archivo.write_text(agente.json.dumps({**agente.json.loads(archivo.read_text("utf-8")), "usa": crudo}), "utf-8")
+        mapo = next(l for l in agente.latidos(agente.Config("fresa", latidos=tmp_path)) if l["proyecto"] == "mapo")
+        assert (mapo["usa"], mapo["estado"]) == (esperado, "bien")
+
+
 def test_log_de_una_unidad_de_usuario(tmp_path, monkeypatch):
     llamadas = []
     monkeypatch.setattr(agente, "WINDOWS", False)

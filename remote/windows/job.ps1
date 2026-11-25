@@ -1,7 +1,7 @@
 ﻿# Trabajos largos en Pixilate que sobreviven al cerrar SSH (OpenSSH en Windows mata los procesos de la sesión).
 # Corren como tarea programada S4U: sin sesión abierta, sin contraseña guardada, con acceso a la GPU.
 #   job.ps1 start <nombre> <carpeta> "<comando>" [-AtStartup | -Diario HH:mm | -Cada <minutos>] [-Baja]
-#                 [-Proyecto <proyecto> -Proceso <proceso>]   (con -Diario o -Cada: deja un latido, ver abajo)
+#                 [-Proyecto <proyecto> -Proceso <proceso> [-Usa <p.x,q.y>]]   (con -Diario o -Cada: deja un latido, ver abajo)
 #   job.ps1 list
 #   job.ps1 log <nombre> [-Tail 100]
 #   job.ps1 stop <nombre>   (detiene y borra la tarea)
@@ -24,7 +24,10 @@ param(
     # Con -Diario o -Cada: al terminar deja un latido en ~\.bakers\latidos (proyecto, proceso, código y cada cuánto
     # corre). Con él, el panel lo agrupa por proyecto y el agente avisa por ntfy si falla o deja de correr
     [ValidatePattern('^[\w.-]{1,64}$')][string]$Proyecto,
-    [ValidatePattern('^[\w.-]{1,64}$')][string]$Proceso
+    [ValidatePattern('^[\w.-]{1,64}$')][string]$Proceso,
+    # De qué otros procesos o servicios depende, separados por comas (bakery.cola,bakery.bakers): flechas del grafo.
+    # Un texto y no una lista: con -File, PowerShell no parte las comas
+    [ValidatePattern('^[\w.-]{1,64}\.[\w.-]{1,64}(,[\w.-]{1,64}\.[\w.-]{1,64}){0,15}$')][string]$Usa
 )
 $ErrorActionPreference = 'Stop'
 $root = "$HOME\bakery-jobs"
@@ -65,10 +68,12 @@ switch ($Verb) {
         New-Item -ItemType Directory -Force $root | Out-Null
         $log = "$root\$Name.log"
         $latido = ''
+        if ($Usa -and -not $Proyecto) { throw '-Usa va con -Proyecto y -Proceso' }
         if ($Proyecto -or $Proceso) {
             if (-not ($Proyecto -and $Proceso)) { throw '-Proyecto y -Proceso van juntos' }
             if (-not ($Diario -or $Cada)) { throw '-Proyecto va con -Diario o -Cada: el latido es de trabajos programados' }
             $horas = if ($Diario) { 24 } else { [math]::Round($Cada / 60, 4) }
+            $usaPs = "@($(($Usa -split ',' | Where-Object { $_ } | ForEach-Object { "'$_'" }) -join ', '))"
             # Mismo formato que escribir_latido de agente.py; el temporal y Move-Item: el agente nunca lee uno a medias
             $latido = @"
 `$carpeta = "`$HOME\.bakers\latidos"
@@ -78,7 +83,7 @@ New-Item -ItemType Directory -Force `$carpeta | Out-Null
 `$resumen = if (`$fallo) { `$fallo } else { "`$(Get-Content '$log' -Tail 20 -Encoding utf8 | Where-Object { `$_.Trim() -and `$_ -notmatch '^\[bakery\] (inicio|fin) |^\s*\+ ' } | Select-Object -Last 1)" }
 `$resumen = (`$resumen -replace '\s+', ' ').Trim()
 if (`$resumen.Length -gt 200) { `$resumen = `$resumen.Substring(0, 200) }
-`$l = [ordered]@{ proyecto = '$Proyecto'; proceso = '$Proceso'; unidad = '$Name'; codigo = `$codigo; cada_h = $horas; aviso_falla = `$true; inicio = `$inicio; fin = `$fin; resumen = `$resumen }
+`$l = [ordered]@{ proyecto = '$Proyecto'; proceso = '$Proceso'; unidad = '$Name'; codigo = `$codigo; cada_h = $horas; aviso_falla = `$true; inicio = `$inicio; fin = `$fin; resumen = `$resumen; usa = $usaPs }
 [IO.File]::WriteAllText("`$carpeta\.$Proyecto.$Proceso.json.tmp", (`$l | ConvertTo-Json -Compress), [Text.UTF8Encoding]::new(`$false))
 Move-Item -Force "`$carpeta\.$Proyecto.$Proceso.json.tmp" "`$carpeta\$Proyecto.$Proceso.json"
 # Historial: las últimas 1000 corridas (TOPE_CORRIDAS de agente.py). Si falla, el latido ya quedó

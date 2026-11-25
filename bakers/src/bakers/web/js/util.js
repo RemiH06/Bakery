@@ -15,6 +15,12 @@ export function el(tag, props = {}, ...hijos) {
 // Arrays aplanados, sin null, "" ni false: lo que `el` acepta como hijos
 const limpios = (hijos) => hijos.flat(Infinity).filter(h => h != null && h !== "" && h !== false);
 
+export function svg(tag, attrs = {}) {
+  const n = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
+  return n;
+}
+
 // replaceChildren nativo convierte arrays y null en texto ("[object HTMLParagraphElement]", "null")
 export const poner = (n, ...hijos) => n.replaceChildren(...limpios(hijos));
 

@@ -4,13 +4,16 @@
 // al que el navegador llama directo (el servidor del panel no tiene permisos sobre otras máquinas).
 // Arriba del menú va «Bakery»: todas las máquinas a la vez, con sus servicios y procesos agrupados por proyecto
 // (Bakery > máquina > proyecto > proceso). El proyecto lo da el latido del proceso o `[proyecto]` del agente.
-import { api, el, hora, poner } from "./util.js";
+// Esa vista se ve como lista o como grafo (`v=grafo` en la URL, ver grafo.js).
+import { api, el, hora, poner, svg } from "./util.js";
+import * as grafo from "./grafo.js";
 
 const CADA = 5000;    // ms entre consultas: lo mismo que tarda el agente en tomar otra muestra
 const CADA_TODAS = 30000;  // la vista de todas pide cada máquina completa: más espaciado
 const ESPERA = 8000;  // una máquina apagada no responde: no se espera más que esto
 const TODAS = "*";    // valor del menú para la vista de Bakery completa
 const VERBO = { iniciar: "Iniciar", detener: "Detener", reiniciar: "Reiniciar" };
+const verbo = (v, s) => v === "iniciar" && s.proceso ? "Correr ya" : VERBO[v];  // un proceso se corre; un servicio se inicia
 const CLASE = { activo: "e-analizado", bien: "e-analizado", arrancando: "e-pendiente", "deteniéndose": "e-pendiente",
   atrasado: "e-pendiente", "falló": "e-fallido", "no existe": "e-fallido" };
 const MAL = new Set(["falló", "atrasado", "no existe"]);
@@ -42,7 +45,6 @@ function dura(s) {
 }
 const tardo = (s) => s.duracion_s == null ? null : `tardó ${dura(s.duracion_s)}`;
 const motivoDe = (e) => e.name === "TimeoutError" ? "no respondió en 8 s: apagada, dormida o fuera del tailnet" : e.message;
-const SVG = "http://www.w3.org/2000/svg";
 
 // Cada recurso: de qué serie del historial sale, su tope y cómo se dice su valor
 const RECURSOS = [
@@ -54,12 +56,6 @@ const RECURSOS = [
   { id: "temp", nombre: "Temperatura", serie: "temp", tope: 90, unidad: "°C" },
 ];
 const fmt = (v, u) => v == null ? "—" : `${Number.isInteger(v) ? v : v.toFixed(1)} ${u}`;
-
-function svg(tag, attrs = {}) {
-  const n = document.createElementNS(SVG, tag);
-  for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
-  return n;
-}
 
 // Línea y área de una serie en un viewBox de 100 x 100 que se estira al contenedor; el trazo no se deforma
 function trazo(valores, tope, conRejilla) {
@@ -95,16 +91,27 @@ export function crear(raiz, navegar) {
   const log = el("div", { class: "pila log-maquina" }, el("p", { class: "tenue" }, "Elige «Log» en un servicio para verlo aquí."));
   const avisoAccion = el("p", { class: "tenue", role: "status" });
   const todas = el("div", { class: "pila todas", "aria-label": "Bakery: todas las máquinas", hidden: true });
+  let resultados = null;         // la última consulta de todas las máquinas: [máquina, datos, error]
+  const vistos = new Map();      // máquina -> sus últimos datos: si deja de responder, sus fichas no desaparecen
+  const detalleFicha = el("div", { class: "detalle-ficha" });
+  const avisoGrafo = el("p", { class: "tenue", role: "status" });
+  let firma = null;
+  const dibujo = grafo.crear(pintarFicha);
+  const vistaGrafo = el("section", { class: "tarjeta vista-grafo", "aria-label": "Grafo de Bakery", hidden: true },
+    dibujo.raiz, el("div", { class: "pila" }, detalleFicha, avisoGrafo));
+  const modos = el("div", { class: "fila", role: "group", "aria-label": "Vista" }, [["", "Lista"], ["grafo", "Grafo"]].map(([v, texto]) =>
+    el("button", { type: "button", class: "boton", "data-v": v, onclick: () => navegar("maquinas", { ...estado, v }) }, texto)));
   const rendimiento = el("section", { class: "tarjeta rendimiento", "aria-labelledby": "rec-t" }, lado,
     el("div", { class: "principal" }, titulo, grande, detalle));
   const abajo = el("div", { class: "maq-abajo" },
     el("section", { class: "tarjeta", "aria-labelledby": "srv-t" }, el("h3", { id: "srv-t" }, "Servicios y procesos"), lista, avisoAccion),
     el("section", { class: "tarjeta", "aria-label": "Log" }, log));
 
-  raiz.append(el("div", { class: "barra-maquinas" }, el("label", { for: "maquina" }, "Máquina"), menu, sello), todas, rendimiento, abajo);
-  menu.addEventListener("change", () => navegar("maquinas", { m: menu.value, r: estado.r }));
+  raiz.append(el("div", { class: "barra-maquinas" }, el("label", { for: "maquina" }, "Máquina"), menu, modos, sello), todas, vistaGrafo, rendimiento, abajo);
+  menu.addEventListener("change", () => navegar("maquinas", { ...estado, m: menu.value }));
 
   const enTodas = () => (estado.m ?? TODAS) === TODAS;
+  const enGrafo = () => enTodas() && estado.v === "grafo";
   const actual = () => maquinas?.find(m => m.nombre === estado.m) || maquinas?.[0];
   const pedir = (m, ruta, cuerpo, senal) => api(`${m.url}${ruta}`, cuerpo, senal || AbortSignal.timeout(cuerpo ? 120000 : ESPERA));
 
@@ -132,7 +139,7 @@ export function crear(raiz, navegar) {
     barra.style.width = `${pct}%`;  // por CSSOM: la CSP no deja atributos style
     poner(lado,
       recursos.map(r => el("button", { type: "button", class: "recurso", "aria-pressed": String(r === elegido),
-        onclick: () => navegar("maquinas", { m: estado.m, r: r.id }) },
+        onclick: () => navegar("maquinas", { ...estado, r: r.id }) },
         el("span", { class: "mini" }, trazo(d.historial[r.serie], r.tope, false)),
         el("span", { class: "texto" }, el("b", {}, r.nombre), el("span", {}, fmt(valorDe(r, d), r.unidad)),
           el("span", { class: "tenue" }, subtitulo(r, d))))),
@@ -188,18 +195,18 @@ export function crear(raiz, navegar) {
   }
 
   // --- Servicios, log y órdenes ---
-  async function actuar(m, ruta, cuerpo, pregunta, boton) {
+  async function actuar(m, ruta, cuerpo, pregunta, boton, aviso = avisoAccion) {
     if (pregunta && !confirm(pregunta)) return;
     boton.disabled = true;
-    avisoAccion.className = "tenue";
-    avisoAccion.textContent = "Trabajando…";
+    aviso.className = "tenue";
+    aviso.textContent = "Trabajando…";
     try {
       await pedir(m, ruta, cuerpo);
-      avisoAccion.textContent = `Listo (${hora(new Date().toISOString())}).`;
-      consultar();
+      aviso.textContent = `Listo (${hora(new Date().toISOString())}).`;
+      enTodas() ? consultarTodas() : consultar();
     } catch (e) {
-      avisoAccion.className = "error";
-      avisoAccion.textContent = `No se pudo: ${e.message}`;
+      aviso.className = "error";
+      aviso.textContent = `No se pudo: ${e.message}`;
     } finally { boton.disabled = false; }
   }
 
@@ -256,7 +263,8 @@ export function crear(raiz, navegar) {
       el("div", { class: "fila" }, insignia(s), el("b", {}, s.nombre), cuando(s)),
       el("span", { class: "tenue" }, [s.detalle, tardo(s), s.siguiente ? `siguiente: ${hora(s.siguiente)}` : null].filter(Boolean).join(" · ")),
       el("div", { class: "fila" },
-        ...(s.controlable ? Object.entries(VERBO).filter(([v]) => (v === "iniciar") !== (s.estado === "activo")).map(([v, texto]) => {
+        ...(s.controlable ? Object.keys(VERBO).filter(v => (v === "iniciar") !== (s.estado === "activo")).map(v => {
+          const texto = verbo(v, s);
           const b = el("button", { type: "button", class: "boton", "aria-label": `${texto} ${s.nombre}` }, texto);
           b.addEventListener("click", () => actuar(m, "/api/accion", { servicio: s.nombre, accion: v },
             v === "iniciar" ? null : `¿${texto} ${s.nombre} en ${m.nombre}?`, b));
@@ -279,11 +287,11 @@ export function crear(raiz, navegar) {
   }
 
   // --- Bakery: todas las máquinas, por proyecto ---
-  function pintarTodas(resultados) {
+  function pintarTodas() {
     poner(todas, resultados.map(([m, d, e]) => el("section", { class: "tarjeta", "aria-label": m.nombre },
       el("div", { class: "fila" }, el("h3", {}, m.nombre),
         el("span", { class: d ? "tenue" : "error" }, d ? `${d.sistema} · ${new Date(d.hora).toLocaleTimeString("es-MX")}` : `sin respuesta: ${motivoDe(e)}`),
-        el("button", { type: "button", class: "boton", onclick: () => navegar("maquinas", { m: m.nombre }) }, `Abrir ${m.nombre}`)),
+        el("button", { type: "button", class: "boton", onclick: () => navegar("maquinas", { ...estado, m: m.nombre }) }, `Abrir ${m.nombre}`)),
       d ? porProyecto(d.servicios).map(([p, ss]) => {
         const malos = ss.filter(s => MAL.has(s.estado)).length;
         // Cerrado si todo está bien: lo que pide atención se ve sin abrir nada
@@ -296,13 +304,60 @@ export function crear(raiz, navegar) {
       }) : null)));
   }
 
+  // --- Bakery como grafo ---
+  function pintarGrafo() {
+    const nodos = resultados.flatMap(([m, d]) => {
+      const visto = d || vistos.get(m.nombre);
+      return visto ? porProyecto(visto.servicios).flatMap(([p, ss]) => ss.map(s => ({
+        clave: `${m.nombre}/${s.nombre}`, ids: [s.proceso && `${p}.${s.proceso}`, `${p}.${s.nombre}`].filter(Boolean), maquina: m.nombre, m, s,
+        titulo: s.proceso || s.nombre, bajo: `${p} · ${m.nombre}`, estado: d ? s.estado : "sin respuesta",
+        clase: d ? CLASE[s.estado] || "" : "e-pendiente", mal: !d || MAL.has(s.estado), usa: s.usa || [] }))) : [];
+    });
+    dibujo.pintar(nodos);
+  }
+
+  // Los datos de la ficha elegida. Solo se rehace si cambió algo: cada consulta le quitaría el foco a sus botones
+  function pintarFicha(n, lados) {
+    const ahora = JSON.stringify(n && [n, lados.usa.map(x => x.clave), lados.loUsan.map(x => x.clave)]);
+    if (ahora === firma) return;
+    firma = ahora;
+    const conFoco = detalleFicha.contains(document.activeElement) ? document.activeElement.textContent : null;
+    if (!n) return poner(detalleFicha, el("p", { class: "tenue" }, "Elige una ficha para ver sus datos."));
+    const { m, s } = n;
+    const ir = (xs) => xs.length ? xs.map(x => el("button", { type: "button", class: "boton", onclick: () => dibujo.elegir(x.clave, true) }, x.titulo))
+      : el("span", { class: "tenue" }, "nada declarado");
+    let correr = null;
+    if (s?.controlable && s.proceso && s.estado !== "activo" && n.estado !== "sin respuesta") {
+      correr = el("button", { type: "button", class: "boton primario" }, "Correr ya");
+      correr.addEventListener("click", () => actuar(m, "/api/accion", { servicio: s.nombre, accion: "iniciar" },
+        `¿Correr ${n.titulo} en ${m.nombre}?`, correr, avisoGrafo));
+    }
+    poner(detalleFicha,
+      el("div", { class: "fila" }, el("span", { class: `insignia ${n.clase}` }, n.estado), el("h3", {}, n.titulo), el("span", { class: "tenue" }, n.bajo)),
+      s ? el("p", { class: "tenue" }, [s.proceso ? s.nombre : null, s.detalle, tardo(s), s.desde ? cuando(s).textContent : null].filter(Boolean).join(" · "))
+        : el("p", { class: "tenue" }, "Alguien declaró que lo usa, pero ninguna máquina lo reporta: el nombre cambió, o su máquina está apagada."),
+      el("div", { class: "fila" }, el("span", { class: "tenue" }, "Usa:"), ir(lados.usa)),
+      el("div", { class: "fila" }, el("span", { class: "tenue" }, "Lo usan:"), ir(lados.loUsan)),
+      m ? el("div", { class: "fila" }, correr,
+        el("button", { type: "button", class: "boton", onclick: () => navegar("maquinas", { ...estado, m: m.nombre }) }, `Abrir ${m.nombre}`)) : null);
+    if (conFoco) [...detalleFicha.querySelectorAll("button")].find(b => b.textContent === conFoco)?.focus();
+  }
+
+  function pintarBakery() {
+    if (!resultados) return;
+    enGrafo() ? pintarGrafo() : pintarTodas();
+    const mudas = resultados.filter(([, d]) => !d).map(([m]) => m.nombre);
+    sello.className = mudas.length ? "error" : "tenue";
+    sello.textContent = `actualizado ${new Date().toLocaleTimeString("es-MX")}${mudas.length ? ` · sin respuesta: ${mudas.join(", ")}` : ""}`;
+  }
+
   async function consultarTodas() {
     const lote = maquinas;
-    const resultados = await Promise.all(lote.map(m => pedir(m, "/api/maquina").then(d => [m, d], e => [m, null, e])));
+    const llegan = await Promise.all(lote.map(m => pedir(m, "/api/maquina").then(d => [m, d], e => [m, null, e])));
     if (!enTodas() || lote !== maquinas) return;
-    pintarTodas(resultados);
-    sello.className = "tenue";
-    sello.textContent = `actualizado ${new Date().toLocaleTimeString("es-MX")}`;
+    resultados = llegan;
+    for (const [m, d] of llegan) if (d) vistos.set(m.nombre, d);
+    pintarBakery();
   }
 
   function pintar(m, d) {
@@ -350,12 +405,17 @@ export function crear(raiz, navegar) {
       }
       clearInterval(reloj);
       const vistaTodas = enTodas();
-      todas.hidden = !vistaTodas;
+      modos.hidden = !vistaTodas;
+      todas.hidden = !vistaTodas || enGrafo();
+      vistaGrafo.hidden = !enGrafo();
+      for (const b of modos.children) b.setAttribute("aria-pressed", String((b.dataset.v === "grafo") === enGrafo()));
       rendimiento.hidden = abajo.hidden = vistaTodas;
       if (vistaTodas) {
         menu.value = TODAS;
         datos = null;
         if (!todas.childElementCount) poner(todas, el("p", { class: "tenue" }, "Consultando todas las máquinas…"));
+        // Cambiar de lista a grafo no espera otra consulta; la hora del sello sí se corrige al llegar
+        if (resultados) enGrafo() ? pintarGrafo() : pintarTodas();
         consultarTodas();
         reloj = setInterval(vuelta, CADA_TODAS);
         return;
