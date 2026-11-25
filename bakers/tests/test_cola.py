@@ -173,7 +173,7 @@ def test_otras_fuentes_se_bajan_una_vez(monkeypatch, reloj, tmp_path):
     assert cola.bajar()["conteo"] == {"bajado": 1}
     monkeypatch.setattr(core, "estado", lambda: {"marcha": "alta"})
     lotes = []
-    monkeypatch.setattr(reel, "reel", lambda fuentes, destino, modelo, parar: lotes.append(fuentes) or
+    monkeypatch.setattr(reel, "reel", lambda fuentes, destino, modelo, parar, pistas: lotes.append(fuentes) or
                         [{"fuente": f, "nota": "n.md"} for f in fuentes])
     monkeypatch.setattr(reel, "_obtener", lambda *a: pytest.fail("analizar no debe descargar"))
     assert cola.analizar(str(tmp_path / "notas"))["conteo"] == {"clasificar": 1}  # sin nota de clases, espera
@@ -296,7 +296,7 @@ def test_analizar_solo_con_marcha_alta_y_disco(monkeypatch, reloj, tmp_path):
     monkeypatch.setattr(core, "estado", lambda: {"marcha": next(marchas)})
     lotes = []
 
-    def reel_falso(fuentes, destino, modelo, parar):
+    def reel_falso(fuentes, destino, modelo, parar, pistas):
         assert destino is None and modelo == "vision-abliterado"  # la nota final la escribe la clase
         lotes.append(fuentes)
         return [{"fuente": f, "error": "bucle"} if "BBB" in f else {"fuente": f, "nota": f"{Path(f).parent}/nota.md"}
@@ -340,7 +340,7 @@ def test_analizar_se_interrumpe_a_media_pieza(monkeypatch, reloj, tmp_path):
     monkeypatch.setattr(cola, "_descargar", lambda modelos: descargados.append(modelos))
     monkeypatch.setattr(cola, "_clasificar", lambda *a: pytest.fail("interrumpido no clasifica"))
 
-    def reel_falso(fuentes, destino, modelo, parar):
+    def reel_falso(fuentes, destino, modelo, parar, pistas):
         marcha["ahora"] = "media"  # alguien abre un juego
         while not parar():
             time.sleep(0.01)

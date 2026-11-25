@@ -196,6 +196,89 @@ def test_reclasificar_revisar_tras_agregar_una_clase(monkeypatch, tmp_path, carp
     assert not material.exists()  # `critica` no conserva
 
 
+def test_destino_de_los_grupos_elegidos():
+    mezcla = "[[AyP]], [[16.100|100]]"
+    assert clases.destino_de(mezcla, {"AyP", "100"}) == mezcla
+    assert clases.destino_de(mezcla, {"AyP"}) == "[[AyP]]"
+    assert clases.destino_de(mezcla, {"100"}) == "[[16.100|100]]"
+    assert clases.destino_de(mezcla, set()) == ""
+    assert clases.destino_de("[[Myriad Lambs]], [[AduSI]]", {"AyP"}) == "[[Myriad Lambs]], [[AyP]]"
+    diseno = "[[37.iroFactory|iroFactory]], skill `frontend-design`"
+    assert clases.destino_de(diseno, {"AduSI"}) == "skill `frontend-design`, [[AduSI]]"
+    assert clases.destino_de(diseno, {"AduSI", "iroFactory"}) == f"{diseno}, [[AduSI]]"
+    dos = "[[56.Crewtive|Crewtive]]; [[29.Bakery|Bakery]] pone el cómputo"
+    assert clases.destino_de(dos, {"iroFactory"}) == dos  # sin cambio, tal cual
+    assert clases.destino_de(dos, {"100"}) == "[[16.100|100]]"
+
+
+def test_cambiar_clase_solo_toca_dos_renglones(carpeta):
+    tabla = clases.cargar(carpeta)
+    nota = carpeta / "n.md"
+    texto = ("---\ntipo: inspiración\nclase: diseno\n---\n# Título\n\n- Fuente: @a, https://x\n- Visto: 2026-11-09\n"
+             "- Destino: [[58.Zootropo|Zootropo]], a mano\n\n## Idea central\nclase: no soy frontmatter\n- Destino: tampoco\n")
+    nota.write_text(texto, "utf-8")
+    # La misma clase: parte del destino que tenía, no del de la tabla
+    assert clases.cambiar(nota, "diseno", {"iroFactory"}, tabla) == "[[58.Zootropo|Zootropo]], a mano"
+    assert nota.read_text("utf-8") == texto
+    assert clases.cambiar(nota, "critica", {"AduSI", "AyP"}, tabla) == "[[AduSI]], [[AyP]]"
+    assert nota.read_text("utf-8") == texto.replace("clase: diseno", "clase: critica").replace(
+        "[[58.Zootropo|Zootropo]], a mano", "[[AduSI]], [[AyP]]")
+    # Sin grupos se queda sin renglón, y al volver a ponerlos regresa bajo los demás
+    assert clases.cambiar(nota, "critica", set(), tabla) == ""
+    assert "- Visto: 2026-11-09\n\n## Idea" in nota.read_text("utf-8")
+    clases.cambiar(nota, "critica", {"100"}, tabla)
+    assert "- Visto: 2026-11-09\n- Destino: [[16.100|100]]\n\n## Idea" in nota.read_text("utf-8")
+    # Sin frontmatter ni encabezado
+    nota.write_text("# Sola\n\nTexto.\n", "utf-8")
+    clases.cambiar(nota, "critica", {"AduSI"}, tabla)
+    assert nota.read_text("utf-8") == "---\nclase: critica\n---\n# Sola\n\nTexto.\n\n- Destino: [[AduSI]]\n"
+
+
+def test_rehacer_una_nota_con_la_clase_de_remi(monkeypatch, tmp_path, carpeta):
+    monkeypatch.setattr(cola, "COLA", tmp_path / "cola")
+    monkeypatch.setattr(cola, "ESTADO", tmp_path / "cola" / "cola.json")
+    monkeypatch.setattr(cola, "_libre_gb", lambda: 100.0)
+    monkeypatch.setattr(core, "estado", lambda: {"marcha": "alta", "bakers": {"clasificador": "bonsai"}, "cargados": []})
+    monkeypatch.setattr(core, "bake", lambda *a: pytest.fail("la clase ya la puso Remi"))
+    material = _pieza(tmp_path, "AAA", "Otro título")
+    (material / "video.info.json").write_text("{}", "utf-8")
+    nota = carpeta / "2026-11-05-alguien-vieja.md"
+    nota.write_text("---\ntipo: inspiración\nestado: semilla\nclase: diseno\n---\n# Vieja\n\n"
+                    "- Fuente: @alguien, https://www.instagram.com/reel/AAA/\n- Visto: 2026-11-05\n\n## Descripción visual\nNada.\n\n"
+                    "## Aplicación\nPara Mapo.\n\n## Notas de Remi\nOjo aquí.\n", "utf-8")
+    item = {"url": "https://www.instagram.com/reel/AAA/", "estado": "analizado", "clase": "diseno", "nota": str(nota), "intentos": 2}
+    cola._guardar({"items": {"AAA": item}, "pausa_hasta": None, "motivo": None, "dia": None, "bajados_hoy": 0})
+    pistas = []
+
+    def reel_falso(fuentes, destino, modelo, parar, p):
+        pistas.append(list(p.values()))
+        return [{"nota": str(material / "nota.md")}]
+
+    monkeypatch.setattr(reel, "reel", reel_falso)
+    destino = clases.cambiar(nota, "critica", {"100"}, clases.cargar(carpeta))
+    assert cola.anotar_clase(nota.name, item["url"], "critica", destino, True, "Es una crítica al trabajo") == "bajado"
+    assert nota.is_file()  # la de antes se queda hasta que haya otra
+    destino = clases.cambiar(nota, "critica", {"AduSI"}, clases.cargar(carpeta))
+    assert cola.anotar_clase(nota.name, item["url"], "critica", destino) == "bajado"  # corregida antes de rehacerse
+
+    assert cola.analizar(str(carpeta))["conteo"] == {"analizado": 1}
+    assert pistas == [["critica. Es una crítica al trabajo"]]
+    texto = nota.read_text("utf-8")
+    assert texto.startswith("---\ntipo: inspiración\nestado: semilla\nclase: critica\n---\n# Otro título\n")
+    assert "- Visto: 2026-11-05\n- Destino: [[AduSI]]\n" in texto and "## Texto completo\n- [00:01] hola" in texto
+    assert "## Aplicación\nPara Mapo." in texto and texto.rstrip().endswith("## Notas de Remi\nOjo aquí.")
+    assert "Descripción visual" not in texto  # de la plantilla vieja: se reescribe
+    assert [p.name for p in carpeta.glob("2026*")] == [nota.name]  # mismo nombre, sin duplicar
+    e = cola._leer()["items"]["AAA"]
+    assert (e["estado"], e["clase"], "rehacer" in e) == ("analizado", "critica", False)
+    assert not material.exists()  # `critica` no conserva
+    # Sin el video en disco, vuelve a bajarse; una nota que no estaba en la cola, entra
+    assert cola.anotar_clase(nota.name, item["url"], "critica", destino, True) == "pendiente"
+    assert cola.anotar_clase("suelta.md", None, "critica", destino) is None
+    assert cola.anotar_clase("suelta.md", "https://www.instagram.com/p/ZZZ/", "critica", destino, True) == "pendiente"
+    assert cola._leer()["items"]["ZZZ"]["url"] == "https://www.instagram.com/p/ZZZ/"
+
+
 def test_nota_usada_borra_su_material(monkeypatch, tmp_path, carpeta):
     """Una nota de inspo que se usó en un proyecto se borra a mano; la cola borra su material y la marca `usado`."""
     monkeypatch.setattr(cola, "COLA", tmp_path / "cola")

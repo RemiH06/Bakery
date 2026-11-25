@@ -11,7 +11,7 @@ import tempfile
 from collections import Counter
 from pathlib import Path
 
-from . import core, reel
+from . import core, notas, reel
 from .core import BakerError
 
 NOTA_CLASES = "0. Clases de inspiración.md"
@@ -20,6 +20,8 @@ LOTE = 40  # piezas por llamada al clasificador, igual que su `lote` en bakers.t
 _SECCIONES = {"Idea central": "idea_central", "Recursos": "recursos", "Pasos": "pasos", "Citas": "citas",
               "Texto en pantalla": "texto_en_pantalla", "Visual": "visual",
               "Afirmaciones por verificar": "afirmaciones", "Aplicación": "aplicacion"}
+# El enlace que se agrega al meter una nota a mano en un grupo del panel (`notas.grupos_de` los lee de `- Destino:`)
+_ENLACE_GRUPO = {"AyP": "[[AyP]]", "100": "[[16.100|100]]", "iroFactory": "[[37.iroFactory|iroFactory]]", "AduSI": "[[AduSI]]"}
 _CABECERA = {"Fuente": "fuente", "Formato": "formato", "Visto": "visto",
              "Material (video, transcripción, fotogramas)": "material"}
 
@@ -104,14 +106,14 @@ def descartar(bloques: dict, clase: str, clases: dict[str, dict]) -> None:
 
 
 def archivar(bloques: dict, clase: str, clases: dict[str, dict], carpeta: Path, nombre: str,
-             frontmatter: list[str] = ()) -> Path | None:
+             frontmatter: list[str] = (), destino: str | None = None) -> Path | None:
     """Escribe `carpeta/nombre` con la plantilla de la clase; `ruido` no deja nota y regresa None. El material
-    se borra aparte, con `descartar`."""
+    se borra aparte, con `descartar`. `destino`: el que se eligió a mano, en vez del de la clase."""
     info = clases.get(clase, {})
     conserva = _conserva(clase, clases)
     if clase == RUIDO:
         return None
-    cuerpo = reel.plantilla(clase, {**bloques, "destino": info.get("destino", ""),
+    cuerpo = reel.plantilla(clase, {**bloques, "destino": info.get("destino", "") if destino is None else destino,
                                     "material": bloques.get("material") if conserva else ""})
     fm = [x for x in frontmatter if not x.startswith(("clase:", "tambien:"))] or ["tipo: inspiración"]
     nota = carpeta / nombre
@@ -144,6 +146,63 @@ def _de_nota(texto: str) -> tuple[list[str], dict]:
         bloques["recursos"] = ""
     bloques["extra"] = "\n\n".join(extra)
     return fm, bloques
+
+
+def _grupos(texto: str) -> set[str]:
+    return set(notas.grupos_de(notas.ENLACE.findall(texto))) - {"otros"}
+
+
+def destino_de(base: str, grupos: set[str]) -> str:
+    """`base` (un renglón Destino) con solo estos grupos: quita los enlaces de los demás y agrega los que falten.
+    Lo que no es de ningún grupo (un skill, una nota suelta) se queda."""
+    if _grupos(base) == grupos:
+        return base
+    partes = [p for p in re.split(r"[,;]\s*", base) if p.strip() and _grupos(p) <= grupos]
+    return ", ".join([*partes, *(x for g, x in _ENLACE_GRUPO.items() if g in grupos - _grupos(base))])
+
+
+def cambiar(nota: Path, clase: str, grupos: set[str], tabla: dict[str, dict]) -> str:
+    """Clase y grupos elegidos a mano: reescribe solo `clase:` y `- Destino:`, nada del cuerpo. Regresa el destino.
+    Si la clase cambió, parte del destino de la nueva; si no, del que tenía la nota."""
+    texto = nota.read_text("utf-8")
+    cabeza, cuerpo = "", texto
+    if texto.startswith("---\n") and (fin := texto.find("\n---\n", 3)) >= 0:
+        cabeza, cuerpo = texto[4:fin + 1], texto[fin + 5:]
+    previa = re.search(r"(?m)^clase:[ \t]*(.*?)[ \t]*$", cabeza)
+    if previa:
+        cabeza = f"{cabeza[:previa.start()]}clase: {clase}{cabeza[previa.end():]}"
+    else:
+        cabeza += f"clase: {clase}\n"
+    corte = m.start() if (m := re.search(r"(?m)^## ", cuerpo)) else len(cuerpo)
+    encabezado, resto = cuerpo[:corte], cuerpo[corte:]
+    actual = re.search(r"(?m)^- Destino:[ \t]*(.*)\n?", encabezado)
+    base = actual[1].strip() if actual and previa and previa[1] == clase else tabla.get(clase, {}).get("destino", "")
+    destino = destino_de(base, grupos)
+    renglon = f"- Destino: {destino}\n" if destino else ""
+    if actual:
+        encabezado = encabezado[:actual.start()] + renglon + encabezado[actual.end():]
+    elif ultimos := list(re.finditer(r"(?m)^- .*\n?", encabezado)):
+        aqui = ultimos[-1].end()
+        encabezado = encabezado[:aqui].rstrip("\n") + "\n" + renglon + encabezado[aqui:]
+    elif renglon:  # sin encabezado de `- Fuente:`: bajo el título
+        encabezado = f"{encabezado.rstrip()}\n\n{renglon}" + ("\n" if resto else "")
+    nota.write_text(f"---\n{cabeza}---\n{encabezado}{resto}", "utf-8")
+    return destino
+
+
+def conservar(nota: Path, bloques: dict) -> tuple[list[str], dict]:
+    """Para escribir otra vez una nota ya analizada: su frontmatter, cuándo se vio, su Aplicación y las secciones
+    que no son de ninguna plantilla (lo agregado a mano), sobre los bloques nuevos."""
+    try:
+        fm, viejos = _de_nota(nota.read_text("utf-8"))
+    except (OSError, TypeError):  # la nota ya no está, o no tiene título
+        return [], bloques
+    propias = {t.strip() for p in reel.PLANTILLAS.iterdir() if p.name.endswith(".md")
+               for t in re.findall(r"(?m)^## (.+)$", p.read_text("utf-8"))}
+    extra = [s.strip() for s in re.split(r"(?m)^(?=## )", viejos["extra"])
+             if s.strip() and s.partition("\n")[0].removeprefix("## ").strip() not in propias]
+    return fm, {**bloques, "visto": viejos.get("visto") or bloques["visto"], "aplicacion": viejos.get("aplicacion") or "",
+                "extra": "\n\n".join(extra)}
 
 
 def _transcripcion(material: str | None) -> str:

@@ -160,6 +160,13 @@ label, .etiqueta { display: block; font-size: 13px; color: var(--tenue); margin-
 .buscador { display: inline-flex; align-items: center; gap: 6px; font: 12.5px var(--mono); color: var(--tenue); }
 .buscador .boton { min-width: 36px; padding: 6px 10px; }
 .volver { display: none; justify-self: start; }
+.clasificar summary { font-size: 14px; color: var(--acento2); }
+.clasificar form { padding: 12px; background: var(--bg2); border: 1px solid var(--borde); border-radius: var(--radio); }
+.clasificar p { margin: 0; }
+.casillas { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 0; padding: 0; border: 0; }
+.casillas legend { padding: 0; font-size: 13px; color: var(--tenue); }
+.casillas label { display: inline-flex; align-items: center; gap: 7px; min-height: 32px; margin: 0; font-size: 14px; color: var(--texto); cursor: pointer; }
+.casillas input { width: 18px; min-height: 18px; height: 18px; margin: 0; accent-color: var(--acento); cursor: pointer; }
 
 /* Texto de la nota */
 .texto { font-size: 15.5px; line-height: 1.7; overflow-wrap: anywhere; }

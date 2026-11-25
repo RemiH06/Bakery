@@ -13,7 +13,7 @@ from pathlib import Path
 
 GRUPOS = ("AyP", "100", "iroFactory", "AduSI")  # las pestañas del cuaderno; lo demás es "otros"
 CONTEXTO = 90  # caracteres a cada lado de la coincidencia en el fragmento
-_ENLACE = re.compile(r"\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]")
+ENLACE = re.compile(r"\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]")
 _PROYECTO = re.compile(r"^\d+\.\S")  # "37.iroFactory" sí; "0. emprendimiento" no
 _PLEGADO: dict[str, str] = {}
 
@@ -77,7 +77,7 @@ def meta(nombre: str, texto: str, fuente: str) -> dict:
     titulo = next((x[2:].strip() for x in cuerpo.splitlines() if x.startswith("# ")), None)
     url = re.search(r"https?://\S+", datos.get("Fuente", ""))
     cuenta = re.match(r"@[\w.]+", datos.get("Fuente", ""))
-    destinos = _ENLACE.findall(datos.get("Destino", ""))
+    destinos = ENLACE.findall(datos.get("Destino", ""))
     fecha = datos.get("Visto") or str(fm.get("fecha", ""))[:10] or nombre[:10]
     if fuente == "bandeja" and not titulo:
         titulo = " ".join(cuerpo.split()[:8]) or nombre

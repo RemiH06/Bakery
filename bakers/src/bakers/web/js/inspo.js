@@ -264,6 +264,61 @@ export function crear(raiz, navegar) {
     return el("div", { class: "hoja-vacia" }, pay("otros"), el("p", {}, "Abre una nota para leerla aquí."));
   }
 
+  // Clase y grupos a mano. El grupo no es un dato de la nota: sale de los enlaces de su Destino, que se reescribe
+  let clases = null;
+  function clasificar(n) {
+    const caja = el("details", { class: "clasificar" }, el("summary", {}, "Cambiar clase o grupo"));
+    const armar = async () => {
+      try { clases ||= (await api("/api/clases")).clases; }
+      catch (e) { poner(caja, caja.firstChild, el("p", { class: "error" }, `Sin la lista de clases: ${e.message}`)); return; }
+      const lista = clases.some(c => c.id === n.clase) ? clases : [{ id: n.clase || "", nombre: n.clase || "sin clase", grupos: n.grupos }, ...clases];
+      const cual = el("select", { id: "nota-clase" }, lista.map(c => el("option", { value: c.id, selected: c.id === (n.clase || "") }, c.nombre)));
+      const casillas = GRUPOS.filter(g => g.id !== "otros").map(g => el("input", { type: "checkbox", value: g.id, checked: n.grupos.includes(g.id) }));
+      const vio = el("textarea", { id: "nota-vio", maxlength: "500", rows: "3", placeholder: "lo que se le escapó al horno: una técnica, una cita, de qué trata en realidad" });
+      const pista = el("div", { hidden: true }, el("label", { for: "nota-vio" }, "Qué viste tú (opcional)"), vio,
+        el("p", { class: "ayuda" }, "Se vuelve a bajar si ya no está y se analiza de nuevo, con el ritmo de la cola. La nota de ahora se queda hasta que salga la otra; " +
+          "tu Aplicación y las secciones que hayas agregado se conservan, lo demás se reescribe."));
+      const otraVez = el("input", { type: "checkbox", id: "nota-rehacer" });
+      const aviso = el("p", { class: "tenue", role: "status" });
+      const guardar = el("button", { type: "submit", class: "boton primario" }, "Guardar");
+      otraVez.addEventListener("change", () => { pista.hidden = !otraVez.checked; });
+      // Al elegir clase se proponen los grupos de su destino; al volver a la de la nota, los que tenía
+      cual.addEventListener("change", () => {
+        const gs = cual.value === n.clase ? n.grupos : lista.find(c => c.id === cual.value).grupos;
+        for (const c of casillas) c.checked = gs.includes(c.value);
+      });
+      const forma = el("form", { class: "pila", onsubmit: async (ev) => {
+        ev.preventDefault();
+        guardar.disabled = true;
+        aviso.className = "tenue";
+        aviso.textContent = "Guardando…";
+        try {
+          const r = await api("/api/nota/clase", { nombre: n.nombre, clase: cual.value, grupos: casillas.filter(c => c.checked).map(c => c.value),
+            rehacer: otraVez.checked, vio: vio.value });
+          dicho = otraVez.checked ? `Guardado. Vuelve al horno: queda como «${r.cola}» en la cola.` : "Guardado.";
+          notaActual = null;
+          await cargarLista();
+          if (estado.n === n.nombre) { await cargarNota(); hoja.querySelector(".clasificar summary")?.focus({ preventScroll: true }); }
+        } catch (e) {
+          aviso.className = "error";
+          aviso.textContent = `No se guardó: ${e.message}`;
+          guardar.disabled = false;
+        }
+      } },
+        el("div", {}, el("label", { for: "nota-clase" }, "Clase"), cual),
+        el("fieldset", { class: "casillas" }, el("legend", {}, "Grupos"), casillas.map(c => {
+          const g = GRUPOS.find(x => x.id === c.value);
+          return el("label", { title: g.nombre }, c, pay(g.id), g.id);
+        })),
+        n.url ? el("fieldset", { class: "casillas" }, el("legend", {}, "Cuerpo"), el("label", {}, otraVez, "Analizar otra vez con esta clase")) : null,
+        pista, el("div", { class: "fila" }, guardar, aviso));
+      poner(caja, caja.firstChild, forma);
+    };
+    caja.addEventListener("toggle", () => { if (caja.open && !caja.querySelector("form")) armar(); });
+    return caja;
+  }
+  let dicho = null;  // qué pasó con el último guardado: la nota se repinta y se lleva el formulario
+
   function pintarNota(n) {
     const [, cuerpo] = separar(n.texto);
     const datos = [fecha(n.fecha), n.cuenta, n.formato, n.clase, n.estado ? `cola: ${n.estado}` : null, n.pista ? `pista: ${n.pista}` : null].filter(Boolean);
@@ -285,8 +340,11 @@ export function crear(raiz, navegar) {
           estado.q ? el("span", { class: "buscador" },
             el("button", { type: "button", class: "boton", "aria-label": "Coincidencia anterior", onclick: () => saltar(-1) }, "↑"),
             el("span", { class: "contador", "aria-live": "polite" }, ""),
-            el("button", { type: "button", class: "boton", "aria-label": "Coincidencia siguiente", onclick: () => saltar(1) }, "↓")) : null)),
+            el("button", { type: "button", class: "boton", "aria-label": "Coincidencia siguiente", onclick: () => saltar(1) }, "↓")) : null),
+        (estado.f || "inspo") === "inspo" ? clasificar(n) : null,
+        dicho ? el("p", { class: "tenue", role: "status" }, dicho) : null),
       contenido);
+    dicho = null;
     hoja.setAttribute("aria-labelledby", "nota-t");
     marcas = estado.q ? resaltarTodo(contenido) : [];
     marcas.sort((a, b) => a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1);

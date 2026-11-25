@@ -320,6 +320,35 @@ def reintentar(tipo: str | None = None) -> dict:
     return {**cuenta, "en_cola": sum(i["estado"] == "pendiente" for i in e["items"].values())}
 
 
+def anotar_clase(nota: str, url: str | None, clase: str, destino: str, rehacer: bool = False, vio: str = "") -> str | None:
+    """La clase que Remi le puso a mano a una nota (el panel ya la escribió). Con `rehacer`, la pieza vuelve a la
+    cola para analizarse otra vez con esa clase y lo que Remi vio de pista; la nota de antes se queda hasta que haya
+    otra. Regresa el estado en que quedó la pieza, o None si no está en la cola."""
+    quedo = None
+
+    def fn(e: dict) -> None:
+        nonlocal quedo
+        k = next((k for k, i in e["items"].items() if i.get("nota") and Path(i["nota"]).name == nota), None)
+        if k is None and url:
+            k = next((x for x in (reel.codigo(url), url) if x in e["items"]), None)
+        if k is None and rehacer:  # una nota que se hizo a mano, con la skill
+            k = reel.codigo(url) or url
+            e["items"][k] = {"url": url, "etiqueta": None, "seccion": None, "nota": nota}
+        if k is None:
+            return
+        i = e["items"][k]
+        i["clase"] = clase
+        if rehacer:
+            i.update(rehacer={"nota": nota, "clase": clase, "destino": destino, "vio": vio}, intentos=0, intentos_analisis=0,
+                     error=None, estado="bajado" if reel.bajado(k) else "pendiente")
+        elif i.get("rehacer"):  # ya iba a rehacerse: que salga con lo último que se eligió
+            i["rehacer"].update(clase=clase, destino=destino)
+        quedo = i["estado"]
+
+    _cambiar(fn)
+    return quedo
+
+
 def estado() -> dict:
     e = _leer()
     por = {}
@@ -451,7 +480,8 @@ def analizar(destino: str, lote: int = LOTE, modelo: str | None = None, min_libr
             claves = listos[:lote]
             try:
                 # Sin destino: la nota final la escribe `_clasificar` con la plantilla de la clase
-                res = reel.reel([videos[k] for k in claves], None, modelo, lambda: trabajo["alto"])
+                res = reel.reel([videos[k] for k in claves], None, modelo, lambda: trabajo["alto"],
+                                {videos[k]: f"{r['clase']}. {r['vio']}".strip() for k in claves if (r := e["items"][k].get("rehacer"))})
             except BakerError as err:
                 if not (_caida(str(err)) or trabajo["alto"]):
                     raise
@@ -508,23 +538,37 @@ def _clasificar(destino: str, ruta_clases: str | None, trabajo: dict) -> None:
         if trabajo["alto"]:
             print(f"[cola] interrumpido ({trabajo['alto']}): la clase sigue en la próxima vuelta", flush=True)
             return
+        # Las que Remi mandó a rehacer ya traen su clase
+        rehacer = {k: r for k in trozo if (r := e["items"][k].get("rehacer")) and r["clase"] in tabla}
+        libres = [k for k in trozo if k not in rehacer]
         try:
-            asignadas = clases.asignar([clases.linea(datos[k]["bloques"], _pista(e["items"][k])) for k in trozo],
-                                       tabla)
+            asignadas = dict(zip(libres, clases.asignar(
+                [clases.linea(datos[k]["bloques"], _pista(e["items"][k])) for k in libres], tabla))) if libres else {}
         except BakerError as err:
             if not (_caida(str(err)) or trabajo["alto"]):
                 raise
             print(f"[cola] sin llama-swap o interrumpido, la clase sigue en la próxima vuelta: {str(err)[-200:]}",
                   flush=True)
             return
-        for k, clase in zip(trozo, asignadas):  # nota, cola y al final el material: así sobrevive a un corte
+        for k in trozo:  # nota, cola y al final el material: así sobrevive a un corte
             b = datos[k]["bloques"]
-            nombre = f"{b['visto']}-{reel._slug(datos[k]['cuenta'])}-{reel._slug(b['tema'])}.md"
-            nota = clases.archivar(b, clase, tabla, carpeta, nombre)
-            _cambiar(lambda e, k=k, c=clase, n=nota: e["items"][k].update(estado="analizado", clase=c,
-                                                                           nota=str(n) if n else None))
+            if r := rehacer.get(k):
+                clase = r["clase"]
+                fm, b = clases.conservar(carpeta / r["nota"], b)
+                nota = clases.archivar(b, clase, tabla, carpeta, r["nota"], fm, r["destino"])
+            else:
+                clase = asignadas[k]
+                nombre = f"{b['visto']}-{reel._slug(datos[k]['cuenta'])}-{reel._slug(b['tema'])}.md"
+                nota = clases.archivar(b, clase, tabla, carpeta, nombre)
+
+            def anotar(e: dict, k=k, clase=clase, nota=nota) -> None:
+                e["items"][k].update(estado="analizado", clase=clase, nota=str(nota) if nota else None)
+                e["items"][k].pop("rehacer", None)
+
+            _cambiar(anotar)
             clases.descartar(b, clase, tabla)
-        print(f"[cola] clasificadas {len(trozo)}: {dict(Counter(asignadas))}", flush=True)
+        print(f"[cola] clasificadas {len(trozo)}: {dict(Counter([*asignadas.values(), *(r['clase'] for r in rehacer.values())]))}",
+              flush=True)
 
 
 def reclasificar(destino: str, ruta_clases: str | None = None, revisar: bool = False) -> dict:

@@ -19,7 +19,7 @@ from importlib.resources import files
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
-from . import agente, cola, core, notas, reel
+from . import agente, clases, cola, core, notas, reel
 from .core import BakerError
 
 PUERTO = 8093  # registrado en 48.SkillShot/PORTS.md
@@ -139,6 +139,32 @@ def _con_notas(fragmentos: list[dict], carpeta: notas.Carpeta | None) -> list[di
     return list(por_nota.values())
 
 
+def _clases(carpeta: notas.Carpeta) -> list[dict]:
+    """Las clases que se le pueden poner a una nota, con los grupos de su destino. `ruido` no deja nota: fuera."""
+    return [{"id": k, "nombre": v["nombre"], "grupos": notas.grupos_de(notas.ENLACE.findall(v["destino"]))}
+            for k, v in clases.cargar(carpeta.ruta).items() if k != clases.RUIDO]
+
+
+def cambiar_clase(carpeta: notas.Carpeta, cuerpo: dict) -> dict:
+    """Clase y grupos de una nota, elegidos a mano; con `rehacer`, además vuelve a la cola (`cola.anotar_clase`)."""
+    nombre, clase, grupos = cuerpo.get("nombre"), cuerpo.get("clase"), cuerpo.get("grupos")
+    n = carpeta.nota(nombre) if isinstance(nombre, str) else None  # solo por nombre exacto del índice: nada de rutas
+    if not n:
+        raise BakerError("no existe esa nota")
+    if not isinstance(grupos, list) or not all(g in notas.GRUPOS for g in grupos):
+        raise BakerError(f"grupos: lista con {', '.join(notas.GRUPOS)}")
+    tabla = clases.cargar(carpeta.ruta)
+    valida = isinstance(clase, str) and clase in tabla and clase != clases.RUIDO
+    if not valida and (clase is None or clase != n["clase"]):  # `revisar` se puede quedar, no poner
+        raise BakerError(f"clase desconocida: {clase!r}")
+    rehacer = cuerpo.get("rehacer") is True
+    if rehacer and not (valida and n["url"]):
+        raise BakerError("para rehacer la nota hace falta una clase de la lista y el enlace de su fuente")
+    destino = clases.cambiar(carpeta.ruta / nombre, clase, set(grupos), tabla)
+    vio = " ".join(str(cuerpo.get("vio") or "").split())[:500]
+    return {"destino": destino, "cola": cola.anotar_clase(nombre, n["url"], clase, destino, rehacer, vio)}
+
+
 def _estados_cola() -> dict[str, str]:
     """Nombre de la nota -> estado de su pieza en la cola (analizado, usado...)."""
     return {Path(i["nota"]).name: i["estado"] for i in cola._leer()["items"].values() if i.get("nota")}
@@ -218,6 +244,12 @@ class _Panel(BaseHTTPRequestHandler):
                 if n:
                     n["estado"] = _estados_cola().get(n["nombre"])
                 self._responder(200 if n else 404, n or {"error": "no existe esa nota"})
+        elif url.path == "/api/clases":
+            if c := self._carpeta({}):
+                try:
+                    self._responder(200, {"clases": _clases(c)})
+                except BakerError as err:
+                    self._responder(404, {"error": str(err)})
         elif url.path == "/api/maquinas":  # la propia por el panel; las demás, por su agente
             self._responder(200, {"local": self.maquina.nombre, "agentes": self.maquina.agentes})
         elif url.path in agente.RUTAS:
@@ -268,6 +300,15 @@ class _Panel(BaseHTTPRequestHandler):
                 if tipo not in (None, "enlace", "bloqueo", "analisis"):
                     return self._responder(400, {"error": f"tipo desconocido: {tipo}"})
                 res = cola.reintentar(tipo)
+            elif self.path == "/api/nota/clase":
+                if not (c := self._carpeta({})):
+                    return
+                if not isinstance(cuerpo, dict):
+                    return self._responder(400, {"error": "JSON inválido (un objeto)"})
+                try:
+                    res = cambiar_clase(c, cuerpo)
+                except BakerError as err:
+                    return self._responder(400, {"error": str(err)})
             elif self.path in agente.RUTAS:
                 if not isinstance(cuerpo, dict):
                     return self._responder(400, {"error": "JSON inválido (un objeto)"})

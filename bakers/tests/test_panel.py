@@ -144,6 +144,35 @@ def test_bandeja_y_nota_completa(con_notas):
     assert nota["texto"].endswith("Arde la miel,\nno el agua.\n") and nota["estado"] is None
 
 
+def test_clase_y_grupo_a_mano(con_notas, tmp_path):
+    inspo = tmp_path / "Inspiración"
+    tabla = ("| Clase | Identificador | Qué se guarda | Destino | Material |\n|---|---|---|---|---|\n"
+             "| Negocios | `negocios` | x | [[0. emprendimiento\\|Emprendimiento]] | Se borra |\n"
+             "| Reflexión | `reflexion` | x | [[AyP]], [[16.100\\|100]] | Se borra |\n| Ruido | `ruido` | x | — | Se borra |\n")
+    (inspo / "0. Clases de inspiración.md").write_text(tabla, "utf-8")
+    assert httpx.get(f"{con_notas}/api/clases", headers=YO).json()["clases"] == [
+        {"id": "negocios", "nombre": "Negocios", "grupos": ["otros"]}, {"id": "reflexion", "nombre": "Reflexión", "grupos": ["AyP", "100"]}]
+    nombre = "2026-10-30-poeta-anhelo.md"
+    base = {"nombre": nombre, "clase": "reflexion", "grupos": ["AyP"]}
+    mandar = lambda **c: httpx.post(f"{con_notas}/api/nota/clase", headers=YO, json={**base, **c})  # noqa: E731
+    r = mandar()
+    assert (r.status_code, r.json()) == (200, {"destino": "[[AyP]]", "cola": None})
+    ver = lambda: httpx.get(f"{con_notas}/api/nota", headers=YO, params={"nombre": nombre}).json()  # noqa: E731
+    assert (ver()["grupos"], ver()["clase"]) == (["AyP"], "reflexion")
+    assert mandar(clase="negocios", grupos=[]).json()["destino"] == "[[0. emprendimiento|Emprendimiento]]"
+    assert mandar(rehacer=True, vio="habla del tiempo").json()["cola"] == "pendiente"
+    assert cola._leer()["items"]["AAA"]["rehacer"]["vio"] == "habla del tiempo" and ver()["estado"] == "pendiente"
+    antes = (inspo / nombre).read_text("utf-8")
+    for malo in ({"clase": "ruido"}, {"clase": "../x"}, {"clase": None}, {"clase": []}, {"grupos": "AyP"}, {"grupos": ["otro"]}, {"grupos": [[]]},
+                 {"nombre": "../secreto.md"}, {"nombre": "0. Clases de inspiración.md"}, {"nombre": None}):
+        assert mandar(**malo).status_code == 400, malo
+    assert (inspo / nombre).read_text("utf-8") == antes
+    assert httpx.post(f"{con_notas}/api/nota/clase", json=base).status_code == 403
+    assert httpx.post(f"{con_notas}/api/nota/clase", headers=YO, json=[1]).status_code == 400
+    otra = {"nombre": "2026-10-29-taller-shaders.md", "clase": "animacion", "grupos": ["iroFactory"]}  # clase fuera de la tabla: se queda
+    assert mandar(**otra).status_code == 200 and mandar(**otra, rehacer=True).status_code == 400
+
+
 def test_nota_solo_por_nombre_del_indice(con_notas, tmp_path):
     (tmp_path / "secreto.md").write_text("no", "utf-8")
     pedir = lambda **p: httpx.get(f"{con_notas}/api/nota", headers=YO, params=p)  # noqa: E731

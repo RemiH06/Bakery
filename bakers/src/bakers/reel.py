@@ -234,8 +234,11 @@ def limpiar(segmentos: list[dict]) -> list[dict]:
     return limpios
 
 
-def _mensaje(meta: dict, formato: str, segmentos: list[dict], tomas: list[tuple[str, Path]]) -> list[dict]:
+def _mensaje(meta: dict, formato: str, segmentos: list[dict], tomas: list[tuple[str, Path]],
+             pista: str | None = None) -> list[dict]:
     cabecera = [formato]
+    if pista:  # segunda lectura: quien guardó el reel dice qué se le escapó a la primera
+        cabecera.append(f"The user who saved this says what it is about; look for it, but do not invent it: {pista}")
     if meta.get("channel") or meta.get("uploader"):
         cabecera.append(f"Account: {meta.get('channel') or meta.get('uploader')}")
     if meta.get("description"):
@@ -319,7 +322,7 @@ def _vision(c: httpx.Client, cfg: dict, mensaje: list[dict], uso: dict) -> Reel:
     return Reel(**datos)
 
 
-def _uno(c: httpx.Client, cfg: dict, fuente: str, destino: Path | None, parar=lambda: None) -> dict:
+def _uno(c: httpx.Client, cfg: dict, fuente: str, destino: Path | None, parar=lambda: None, pista: str | None = None) -> dict:
     uso = {"modelo": None, "entrada": 0, "salida": 0, "intentos": 0}
     inicio, error, res = time.monotonic(), None, None
     pasos, ultimo = {}, inicio  # segundos por paso, para saber dónde se va el tiempo
@@ -347,7 +350,7 @@ def _uno(c: httpx.Client, cfg: dict, fuente: str, destino: Path | None, parar=la
             tomas = _fotogramas(video, trabajo, duracion)
             formato, cabecera = f"reel, {_mmss(duracion)}", f"Duration: {_mmss(duracion)}"
         marca("fotogramas")
-        r = _vision(c, cfg, _mensaje(meta, cabecera, segmentos, tomas), uso)
+        r = _vision(c, cfg, _mensaje(meta, cabecera, segmentos, tomas, pista), uso)
         marca("vision")
         r.texto_en_pantalla = _sin_subtitulos(r.texto_en_pantalla, segmentos)
         if not segmentos:  # sin habla, la visión copia el texto de las diapositivas como citas (2026-10-29)
@@ -374,11 +377,13 @@ def _uno(c: httpx.Client, cfg: dict, fuente: str, destino: Path | None, parar=la
                         ok=error is None, error=error, claude_chars=len(fuente) + respuesta, pasos=pasos, **uso)
 
 
-def reel(fuentes: list[str], destino: str | None = None, modelo: str | None = None, parar=lambda: None) -> list[dict]:
+def reel(fuentes: list[str], destino: str | None = None, modelo: str | None = None, parar=lambda: None,
+         pistas: dict[str, str] | None = None) -> list[dict]:
     """Una nota por fuente (enlace o archivo local). Un fallo no detiene a las demás: queda en su `error`.
     `destino` es la carpeta de notas del proyecto; sin ella, la nota se queda junto al material.
     `modelo` cambia el de `bakers.toml` (p. ej. `vision-abliterado`, que no está en el grupo `reel`:
-    whisper y él se turnan la VRAM en cada reel). `parar` regresa un motivo para cortar entre pasos, o None."""
+    whisper y él se turnan la VRAM en cada reel). `parar` regresa un motivo para cortar entre pasos, o None.
+    `pistas`: fuente -> lo que vio quien la guardó (ver `_mensaje`)."""
     if not fuentes:
         raise BakerError("Sin fuentes: pasa enlaces de reels o rutas de videos")
     carpeta = None
@@ -393,4 +398,4 @@ def reel(fuentes: list[str], destino: str | None = None, modelo: str | None = No
     cfg = core.BAKERS["reel"] if modelo is None else {**core.BAKERS["reel"], "modelo": modelo}
     # whisper y vision quedan cargados juntos (grupo `reel` de llama-swap) mientras dure el lote
     with core._cliente(timeout=600) as c:
-        return [_uno(c, cfg, f, carpeta, parar) for f in fuentes]
+        return [_uno(c, cfg, f, carpeta, parar, (pistas or {}).get(f)) for f in fuentes]
