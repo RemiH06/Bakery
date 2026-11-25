@@ -5,6 +5,7 @@
 ![Raspberry Pi](https://img.shields.io/badge/-Raspberry%20Pi-A22846?style=for-the-badge&logo=raspberrypi&logoColor=white)
 ![Cloudflare](https://img.shields.io/badge/-Cloudflare-F38020?style=for-the-badge&logo=cloudflare&logoColor=white)
 ![Debian](https://img.shields.io/badge/-Debian-A81D33?style=for-the-badge&logo=debian&logoColor=white)
+![Kotlin](https://img.shields.io/badge/-Kotlin-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white)
 ![Built with Love](https://forthebadge.com/images/badges/built-with-love.svg)
 
 ```ascii
@@ -86,6 +87,11 @@ Requisitos: una cuenta de Tailscale, [uv](https://docs.astral.sh/uv/) en la lapt
    ```bash
    docker compose -f publicacion/compose.yml up -d
    ```
+7. App de Android (opcional), para compartir un enlace directo a la cola. Pide JDK 17 y el SDK 36.1 (`sdk.dir` en `app/local.properties`); la dirección del panel se escribe en la app, no en el código.
+   ```bash
+   cd app && ./gradlew testDebugUnitTest assembleRelease
+   adb install -r build/outputs/apk/release/bakery-app-release.apk
+   ```
 
 ## Argumentos de ejecución
 
@@ -107,6 +113,7 @@ Trabajos largos en Windows que sobreviven al cerrar SSH:
 - **Bakers por MCP y CLI:** `resumidor`, `fichero`, `clasificador`, `reel` y `chat`, con salida validada por esquemas de Pydantic y reintento si el modelo se sale del formato.
 - **Marchas por VRAM:** un vigilante elige cada 5 s qué modelo atiende según lo que deja libre un juego (`alta` con Bonsai, `media` con Qwen y expertos en RAM, `ninguna`).
 - **Visión y transcripción locales:** whisper.cpp y Qwen con `mmproj` para reels, carruseles y videos de hasta 10 min, sin mandar material a terceros.
+- **Compartir desde el teléfono:** la app de Android manda un enlace de Instagram, TikTok, YouTube o Facebook a la cola, con etiqueta y sección opcionales; si no hay conexión lo guarda y lo reintenta sola. Sin token: la identidad la pone Tailscale.
 - **Acceso remoto sin puertos abiertos:** SSH por Tailscale, trabajos que sobreviven al cerrar la sesión y Wake-on-LAN desde una Pi.
 - **Publicación controlada:** Cloudflare Tunnel en Docker con imagen fija, solo lectura, sin capacidades y métricas en loopback; todo lo no declarado responde 404.
 - **Arranque en frío:** tras un apagón, el nodo de GPU, WSL, Docker, el túnel y los servicios vuelven solos sin nadie en casa.
